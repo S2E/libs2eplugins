@@ -156,17 +156,17 @@ void ModuleMap::initialize() {
 
     m_monitor->onModuleUnload.connect(sigc::mem_fun(*this, &ModuleMap::onModuleUnload));
 
-    WindowsMonitor *winmon2 = dynamic_cast<WindowsMonitor *>(m_monitor);
-    if (winmon2) {
-        winmon2->onMonitorLoad.connect(sigc::mem_fun(*this, &ModuleMap::onMonitorLoad));
+    WindowsMonitor *winmon = dynamic_cast<WindowsMonitor *>(m_monitor);
+    if (winmon) {
+        winmon->onMonitorLoad.connect(sigc::mem_fun(*this, &ModuleMap::onMonitorLoad));
     }
 }
 
 void ModuleMap::onMonitorLoad(S2EExecutionState *state) {
-    WindowsMonitor *winmon2 = dynamic_cast<WindowsMonitor *>(m_monitor);
-    if (!winmon2->moduleUnloadSupported()) {
+    WindowsMonitor *winmon = dynamic_cast<WindowsMonitor *>(m_monitor);
+    if (!winmon->moduleUnloadSupported()) {
         getDebugStream() << "Guest OS does not support native module unload, using workaround\n";
-        winmon2->onNtUnmapViewOfSection.connect(sigc::mem_fun(*this, &ModuleMap::onNtUnmapViewOfSection));
+        winmon->onNtUnmapViewOfSection.connect(sigc::mem_fun(*this, &ModuleMap::onNtUnmapViewOfSection));
     }
 }
 
