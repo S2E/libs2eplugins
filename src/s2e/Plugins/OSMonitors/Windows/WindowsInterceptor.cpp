@@ -97,7 +97,7 @@ bool WindowsInterceptor::getImports(S2EExecutionState *state, const ModuleDescri
         return false;
     }
 
-    getDebugStream(state) << "getting import for " << Desc << "\n";
+    getDebugStream(state) << "getting imports for " << Desc << "\n";
 
     bool result = true;
     vmi::GuestMemoryFileProvider file(state, &Vmi::readGuestVirtual, NULL, Desc.Name);

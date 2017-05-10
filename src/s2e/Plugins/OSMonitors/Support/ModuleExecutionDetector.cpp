@@ -313,7 +313,6 @@ void ModuleExecutionDetector::moduleLoadListener(S2EExecutionState *state, const
             plgState->loadDescriptor(module, false);
             onModuleLoad.emit(state, module);
         }
-        return;
     }
 }
 

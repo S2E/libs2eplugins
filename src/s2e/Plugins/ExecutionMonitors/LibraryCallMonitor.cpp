@@ -1,144 +1,85 @@
 ///
-/// Copyright (C) 2011-2015, Dependable Systems Laboratory, EPFL
+/// Copyright (C) 2011 - 2017, Dependable Systems Laboratory, EPFL
 /// Copyright (C) 2016, Cyberhaven
 /// All rights reserved.
 ///
 /// Licensed under the Cyberhaven Research License Agreement.
 ///
 
-#include <s2e/ConfigFile.h>
+#include <cpu/tb.h>
+
+#include <s2e/CorePlugin.h>
 #include <s2e/Plugins/OSMonitors/OSMonitor.h>
+#include <s2e/Plugins/OSMonitors/Support/ModuleMap.h>
+#include <s2e/Plugins/OSMonitors/Support/ProcessExecutionDetector.h>
 #include <s2e/S2E.h>
 #include <s2e/Utils.h>
-#include <s2e/cpu.h>
-
-#include <iostream>
 
 #include "LibraryCallMonitor.h"
 
 namespace s2e {
 namespace plugins {
 
-S2E_DEFINE_PLUGIN(LibraryCallMonitor, "Flags all calls to external libraries", "LibraryCallMonitor", "OSMonitor",
-                  "FunctionMonitor", "ModuleExecutionDetector");
+S2E_DEFINE_PLUGIN(LibraryCallMonitor, "Monitors external library function calls", "", "ModuleMap", "OSMonitor",
+                  "ProcessExecutionDetector");
 
 void LibraryCallMonitor::initialize() {
-    m_functionMonitor = static_cast<FunctionMonitor *>(s2e()->getPlugin("FunctionMonitor"));
+    m_map = static_cast<ModuleMap *>(s2e()->getPlugin("ModuleMap"));
     m_monitor = static_cast<OSMonitor *>(s2e()->getPlugin("OSMonitor"));
-    m_detector = static_cast<ModuleExecutionDetector *>(s2e()->getPlugin("ModuleExecutionDetector"));
+    m_procDetector = static_cast<ProcessExecutionDetector *>(s2e()->getPlugin("ProcessExecutionDetector"));
 
-    ConfigFile *cfg = s2e()->getConfig();
-    m_displayOnce = cfg->getBool(getConfigKey() + ".displayOnce", false);
-
-    bool ok = false;
-
-    // Fetch the list of modules where to report the calls
-    ConfigFile::string_list moduleList =
-        cfg->getStringList(getConfigKey() + ".moduleIds", ConfigFile::string_list(), &ok);
-
-    if (!ok || moduleList.empty()) {
-        getWarningsStream() << "LibraryCallMonitor: no modules specified, tracking everything.\n";
-    }
-
-    foreach2 (it, moduleList.begin(), moduleList.end()) {
-        if (!m_detector->isModuleConfigured(*it)) {
-            getWarningsStream() << "LibraryCallMonitor: module " << *it << " is not configured\n";
-            exit(-1);
-        }
-        m_trackedModules.insert(*it);
-    }
-
-    m_detector->onModuleLoad.connect(sigc::mem_fun(*this, &LibraryCallMonitor::onModuleLoad));
-
-    m_monitor->onModuleUnload.connect(sigc::mem_fun(*this, &LibraryCallMonitor::onModuleUnload));
+    s2e()->getCorePlugin()->onTranslateBlockEnd.connect(sigc::mem_fun(*this, &LibraryCallMonitor::onTranslateBlockEnd));
 }
 
-void LibraryCallMonitor::onModuleLoad(S2EExecutionState *state, const ModuleDescriptor &module) {
-    vmi::Imports imports;
-
-    if (!m_monitor->getImports(state, module, imports)) {
-        getWarningsStream() << "LibraryCallMonitor could not retrieve imported functions in " << module.Name << '\n';
+void LibraryCallMonitor::onTranslateBlockEnd(ExecutionSignal *signal, S2EExecutionState *state, TranslationBlock *tb,
+                                             uint64_t pc, bool isStatic, uint64_t staticTarget) {
+    // Only interested in particular modules
+    if (!m_procDetector->isTracked(state)) {
         return;
     }
 
-    // Unless otherwise specified, LibraryCallMonitor tracks all library calls in the system
-    if (!m_trackedModules.empty()) {
-        const std::string *moduleId = m_detector->getModuleId(module);
-        if (!moduleId || (m_trackedModules.find(*moduleId) == m_trackedModules.end())) {
-            return;
-        }
-    }
-
-    DECLARE_PLUGINSTATE(LibraryCallMonitorState, state);
-
-    foreach2 (it, imports.begin(), imports.end()) {
-        const std::string &libName = (*it).first;
-        const vmi::ImportedSymbols &funcs = (*it).second;
-        foreach2 (fit, funcs.begin(), funcs.end()) {
-            const std::string &funcName = (*fit).first;
-            std::string composedName = libName + "!";
-            composedName = composedName + funcName;
-
-            uint64_t address = (*fit).second.address;
-
-            std::pair<StringSet::iterator, bool> insertRes;
-            insertRes = m_functionNames.insert(composedName);
-
-            const char *cstring = (*insertRes.first).c_str();
-            plgState->m_functions[address] = cstring;
-
-            FunctionMonitor::CallSignal *cs = m_functionMonitor->getCallSignal(state, address, module.AddressSpace);
-            cs->connect(sigc::mem_fun(*this, &LibraryCallMonitor::onFunctionCall));
-        }
+    // Library calls are always indirect calls
+    if (tb->se_tb_type == TB_CALL_IND) {
+        signal->connect(sigc::mem_fun(*this, &LibraryCallMonitor::onIndirectCall));
     }
 }
 
-void LibraryCallMonitor::onModuleUnload(S2EExecutionState *state, const ModuleDescriptor &module) {
-    m_functionMonitor->disconnect(state, module);
-    return;
-}
-
-void LibraryCallMonitor::onFunctionCall(S2EExecutionState *state, FunctionMonitorState *fns) {
-    // Only track configured modules
-    uint64_t caller = state->getTb()->pcOfLastInstr;
-    const ModuleDescriptor *mod = m_detector->getModule(state, caller);
-    if (!mod) {
+void LibraryCallMonitor::onIndirectCall(S2EExecutionState *state, uint64_t pc) {
+    // Only interested in particular modules
+    if (!m_procDetector->isTracked(state)) {
         return;
     }
 
-    DECLARE_PLUGINSTATE(LibraryCallMonitorState, state);
-    uint64_t pc = state->getPc();
+    // Get the loaded modules for the current process
+    uint64_t pid = m_monitor->getPid(state);
+    ModuleDescriptorList mods = m_map->getModulesByPid(state, pid);
 
-    if (m_displayOnce &&
-        (m_alreadyCalledFunctions.find(std::make_pair(mod->AddressSpace, pc)) != m_alreadyCalledFunctions.end())) {
-        return;
-    }
+    uint64_t targetAddr = state->getPc();
 
-    LibraryCallMonitorState::AddressToFunctionName::iterator it = plgState->m_functions.find(pc);
-    if (it != plgState->m_functions.end()) {
-        const char *str = (*it).second;
-        getInfoStream() << mod->Name << "@" << hexval(mod->ToNativeBase(caller)) << " called function " << str << '\n';
+    // Find the module that contains the call target
+    for (auto const &mod : mods) {
+        if (mod->Contains(targetAddr)) {
+            vmi::Exports exps;
+            if (!m_monitor->getExports(state, *mod, exps)) {
+                getWarningsStream(state) << "unable to get exports for " << mod->Name << "\n";
+                break;
+            }
 
-        onLibraryCall.emit(state, fns, *mod);
+            // Find the export that matches the call target
+            for (auto const &exp : exps) {
+                if (targetAddr == exp.second) {
+                    const ModuleDescriptor *currentMod = m_map->getModule(state, pc);
+                    getInfoStream(state) << currentMod->Name << "@" << hexval(currentMod->ToNativeBase(pc))
+                                         << " called function " << exp.first << "\n";
 
-        if (m_displayOnce) {
-            m_alreadyCalledFunctions.insert(std::make_pair(mod->AddressSpace, pc));
+                    onLibraryCall.emit(state, *currentMod, targetAddr);
+                    break;
+                }
+            }
+
+            break;
         }
     }
-}
-
-LibraryCallMonitorState::LibraryCallMonitorState() {
-}
-
-LibraryCallMonitorState::~LibraryCallMonitorState() {
-}
-
-LibraryCallMonitorState *LibraryCallMonitorState::clone() const {
-    return new LibraryCallMonitorState(*this);
-}
-
-PluginState *LibraryCallMonitorState::factory(Plugin *p, S2EExecutionState *s) {
-    return new LibraryCallMonitorState();
 }
 
 } // namespace plugins
