@@ -100,13 +100,14 @@ template <typename T> T &operator<<(T &stream, const S2E_DECREEMON_COMMANDS &c) 
     return stream;
 }
 
-class DecreeMonitor : public BaseLinuxMonitor<S2E_DECREEMON_COMMAND> {
+class DecreeMonitor : public BaseLinuxMonitor<S2E_DECREEMON_COMMAND, S2E_DECREEMON_COMMAND_VERSION> {
     S2E_PLUGIN
 
     friend class DecreeMonitorState;
 
 public:
-    DecreeMonitor(S2E *s2e);
+    DecreeMonitor(S2E *s2e) : BaseLinuxMonitor(s2e) {
+    }
 
     void initialize();
 

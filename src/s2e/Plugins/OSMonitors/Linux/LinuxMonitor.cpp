@@ -26,26 +26,33 @@ namespace linux {
 // version of the kernel, these values should be recalculated as required
 //
 
-/// \brief The start address of the kernel
 ///
-/// This is configured in the Linux kernel via the CONFIG_PAGE_OFFSET option.
-/// This is the default value for X86
-static const uint64_t KERNEL_START_ADDRESS = 0xC0000000;
-
-// TODO Get real stack size from process memory map
-static const unsigned STACK_SIZE = 16 * 1024 * 1024;
-
 /// \brief Process identifier offset
 ///
 /// Found with "pahole vmlinux -C task_struct | grep pid". Note that this
 /// requires that the kernel be built with debug information.
-static const unsigned TASK_STRUCT_PID_OFFSET = 884;
+///
+#if defined(TARGET_I386)
+static const unsigned TASK_STRUCT_PID_OFFSET = 820;
+#elif defined(TARGET_X86_64)
+static const unsigned TASK_STRUCT_PID_OFFSET = 1120;
+#else
+#error "LinuxMonitor: Unsupported architecture"
+#endif
 
+///
 /// \brief Thread group identifier offset
 ///
 /// Found with "pahole vmlinux -C task_struct | grep tgid". Note that this
 /// requires that the kernel be built with debug information.
-static const unsigned TASK_STRUCT_TGID_OFFSET = 888;
+///
+#if defined(TARGET_I386)
+static const unsigned TASK_STRUCT_TGID_OFFSET = 824;
+#elif defined(TARGET_X86_64)
+static const unsigned TASK_STRUCT_TGID_OFFSET = 1124;
+#else
+#error "LinuxMonitor: Unsupported architecture"
+#endif
 
 } // namespace linux
 
@@ -70,12 +77,9 @@ public:
 
 ////////////////
 
-LinuxMonitor::LinuxMonitor(S2E *s2e)
-    : BaseLinuxMonitor(s2e, linux::KERNEL_START_ADDRESS, linux::STACK_SIZE, S2E_LINUXMON_COMMAND_VERSION) {
-}
-
 void LinuxMonitor::initialize() {
     ConfigFile *cfg = s2e()->getConfig();
+
     m_terminateOnSegfault = cfg->getBool(getConfigKey() + ".terminateOnSegfault", true);
     m_terminateOnTrap = cfg->getBool(getConfigKey() + ".terminateOnTrap", true);
 }
@@ -93,7 +97,6 @@ uint64_t LinuxMonitor::getPid(S2EExecutionState *state, uint64_t pc) {
 // Therefore the getPid method returns the TGID and getTid returns the PID.
 //
 
-// XXX: this assumes 64-bit kernels!
 uint64_t LinuxMonitor::getPid(S2EExecutionState *state) {
     target_ulong tgid;
     target_ulong taskStructPtr = getTaskStructPtr(state);
@@ -201,7 +204,7 @@ void LinuxMonitor::handleProcessExit(S2EExecutionState *state, const S2E_LINUXMO
         return;
     }
 
-    getDebugStream(state) << "Removing task (pid=" << cmd.currentPid << ", cr3=" << mod->AddressSpace
+    getDebugStream(state) << "Removing task (pid=" << hexval(cmd.currentPid) << ", cr3=" << hexval(mod->AddressSpace)
                           << ", exitCode=" << cmd.ProcessExit.code << ") record from collector.\n";
     plgState->removeModule(*mod);
 
