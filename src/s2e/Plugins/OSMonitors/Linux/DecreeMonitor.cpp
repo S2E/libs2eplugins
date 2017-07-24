@@ -31,20 +31,21 @@ S2E_DEFINE_PLUGIN(DecreeMonitor, "DecreeMonitor S2E plugin", "OSMonitor", "BaseI
 
 namespace decree {
 
-/// The start address of the kernel
-static const uint64_t KERNEL_START_ADDRESS = 0xC0000000;
-
-// TODO Get real stack size from process memory map
-static const unsigned STACK_SIZE = 16 * 1024 * 1024;
-
+///
+/// \brief Process identifier offset
+///
+/// Found with "pahole vmlinux -C task_struct | grep pid". Note that this
+/// requires that the kernel be built with debug information.
+///
+#if defined(TARGET_I386)
+static const unsigned TASK_STRUCT_PID_OFFSET = 320;
+#else
+#error "DecreeMonitor: Unsupported architecture"
+#endif
 } // namespace decree
 
 /// \brief We assume allocation of this amount of memory will never fail
 #define SAFE_ALLOCATE_SIZE (16 * 1024 * 1024)
-
-DecreeMonitor::DecreeMonitor(S2E *s2e)
-    : BaseLinuxMonitor(s2e, decree::KERNEL_START_ADDRESS, decree::STACK_SIZE, S2E_DECREEMON_COMMAND_VERSION) {
-}
 
 void DecreeMonitor::initialize() {
     m_base = s2e()->getPlugin<BaseInstructions>();
@@ -59,10 +60,6 @@ void DecreeMonitor::initialize() {
 
     ConfigFile *cfg = s2e()->getConfig();
 
-    m_invokeOriginalSyscalls = cfg->getBool(getConfigKey() + ".invokeOriginalSyscalls", false);
-
-    m_printOpcodeOffsets = cfg->getBool(getConfigKey() + ".printOpcodeOffsets", false);
-
     m_symbolicReadLimitCount = cfg->getInt(getConfigKey() + ".symbolicReadLimitCount", 16 * 1024 * 1024);
     m_maxReadLimitCount = cfg->getInt(getConfigKey() + ".maxReadLimitCount", 16 * 1024 * 1024);
     if (!(m_symbolicReadLimitCount <= m_maxReadLimitCount)) {
@@ -70,17 +67,16 @@ void DecreeMonitor::initialize() {
         exit(-1);
     }
 
+    m_invokeOriginalSyscalls = cfg->getBool(getConfigKey() + ".invokeOriginalSyscalls", false);
+    m_printOpcodeOffsets = cfg->getBool(getConfigKey() + ".printOpcodeOffsets", false);
     m_terminateOnSegfault = cfg->getBool(getConfigKey() + ".terminateOnSegfault", true);
     m_terminateProcessGroupOnSegfault = cfg->getBool(getConfigKey() + ".terminateProcessGroupOnSegfault", false);
-
     m_concolicMode = cfg->getBool(getConfigKey() + ".concolicMode", false);
-
     m_logWrittenData = cfg->getBool(getConfigKey() + ".logWrittenData", true);
-
     m_handleSymbolicAllocateSize = cfg->getBool(getConfigKey() + ".handleSymbolicAllocateSize", false);
     m_handleSymbolicBufferSize = cfg->getBool(getConfigKey() + ".handleSymbolicBufferSize", false);
-
     m_feedConcreteData = cfg->getString(getConfigKey() + ".feedConcreteData", "");
+
     m_symbolicReadLimitCount += m_feedConcreteData.length();
     m_maxReadLimitCount += m_feedConcreteData.length();
 
@@ -234,7 +230,7 @@ klee::ref<klee::Expr> DecreeMonitor::readMemory8(S2EExecutionState *state, uint6
 uint64_t DecreeMonitor::getPid(S2EExecutionState *state, uint64_t pc) {
     target_ulong pid;
     target_ulong taskStructPtr = getTaskStructPtr(state);
-    unsigned pidAddress = taskStructPtr + 320; // Offsets can be found with: pahole vmlinux -C task_struct
+    unsigned pidAddress = taskStructPtr + decree::TASK_STRUCT_PID_OFFSET;
 
     if (!state->mem()->readMemoryConcrete(pidAddress, &pid, sizeof(pid))) {
         return -1;

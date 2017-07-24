@@ -46,12 +46,13 @@ template <typename T> T &operator<<(T &stream, const S2E_LINUXMON_COMMANDS &c) {
 /// Linux 4.9.3 kernel, which can be accessed at
 /// https://github.com/S2E/s2e-linux-kernel.git in the linux-4.9.3 branch.
 ///
-class LinuxMonitor : public BaseLinuxMonitor<S2E_LINUXMON_COMMAND> {
+class LinuxMonitor : public BaseLinuxMonitor<S2E_LINUXMON_COMMAND, S2E_LINUXMON_COMMAND_VERSION> {
     S2E_PLUGIN
 public:
-    // Initialize the plugin
-    LinuxMonitor(S2E *s2e);
-    virtual void initialize();
+    LinuxMonitor(S2E *s2e) : BaseLinuxMonitor(s2e) {
+    }
+
+    void initialize();
 
 private:
     /// Terminate if a trap (e.g. divide by zero) occurs
@@ -70,11 +71,9 @@ private:
 
 public:
     /// Emitted when a trap occurs in the kernel (e.g. divide by zero, etc.)
-    sigc::signal<void, S2EExecutionState *,
-                 uint64_t, // pid
-                 uint64_t, // pc
-                 int       // trapnr
-                 >
+    sigc::signal<void, S2EExecutionState *, uint64_t, /* pid */
+                 uint64_t,                            /* pc */
+                 int /* trapnr */>
         onTrap;
 
     // Get the current process identifier
