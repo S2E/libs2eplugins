@@ -90,8 +90,11 @@ add_library(
     s2e/Plugins/Coverage/TranslationBlockCoverage.cpp
     s2e/Plugins/Coverage/EdgeCoverage.cpp
 
+    # Tutorials
+    s2e/Plugins/Tutorials/Example.cpp
+    s2e/Plugins/Tutorials/GoogleCTFUnbreakable.cpp
+
     # Misc plugins
-    s2e/Plugins/Example.cpp
     s2e/Plugins/Analyzers/CacheSim.cpp
 
     # Execution monitors
