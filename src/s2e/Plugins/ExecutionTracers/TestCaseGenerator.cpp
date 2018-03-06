@@ -11,6 +11,7 @@
 #include <iomanip>
 
 #include <boost/regex.hpp>
+#include <llvm/Support/FileSystem.h>
 #include <s2e/Plugins/OSMonitors/Linux/LinuxMonitor.h>
 #include <s2e/Plugins/OSMonitors/Windows/WindowsCrashMonitor.h>
 #include <s2e/S2E.h>
@@ -43,6 +44,7 @@ void TestCaseGenerator::initialize() {
     ConfigFile *cfg = s2e()->getConfig();
     bool tcOnKill = cfg->getBool(getConfigKey() + ".generateOnStateKill", true);
     bool tcOnSegfault = cfg->getBool(getConfigKey() + ".generateOnSegfault", true);
+    m_tcRaw = cfg->getBool(getConfigKey() + ".generateRaw", false);
 
     if (tcOnKill) {
         m_connection =
@@ -96,6 +98,21 @@ void TestCaseGenerator::onStateKill(S2EExecutionState *state) {
     generateTestCases(state, "kill", TC_LOG | TC_TRACE | TC_FILE);
 }
 
+void TestCaseGenerator::writeRawTestCase(S2EExecutionState* state, const std::string &prefix, const ConcreteInputs &inputs) {
+  std::stringstream ss;
+  ss << "testcase-" << prefix << "-" << state->getID() << "-raw";
+  std::string outputFileName = s2e()->getOutputFilename(ss.str());
+  std::error_code error;
+  llvm::raw_fd_ostream o(outputFileName.c_str(), error, llvm::sys::fs::F_None);
+
+  if (error) {
+    getWarningsStream() << "Unable to open " << outputFileName << " - " << error.message();
+  } else {
+    writeSimpleTestCase(o, inputs);
+    o.close();
+  }
+}
+
 void TestCaseGenerator::generateTestCases(S2EExecutionState *state, const std::string &prefix, TestCaseType type) {
     getInfoStream(state) << "generating test case at address " << hexval(state->regs()->getPc()) << '\n';
 
@@ -108,7 +125,10 @@ void TestCaseGenerator::generateTestCases(S2EExecutionState *state, const std::s
     }
 
     if (type & TC_LOG) {
-        writeSimpleTestCase(getDebugStream(state), inputs);
+      writeSimpleTestCase(getDebugStream(state), inputs);
+      if (m_tcRaw) {
+        writeRawTestCase(state, prefix, inputs);
+      }
     }
 
     if (type & TC_TRACE) {

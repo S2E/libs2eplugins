@@ -53,6 +53,7 @@ public:
 private:
     sigc::connection m_connection;
     ExecutionTracer *m_tracer;
+    bool m_tcRaw;
 
     void onStateKill(S2EExecutionState *state);
     void onSegFault(S2EExecutionState *state, uint64_t pid, uint64_t pc);
@@ -61,6 +62,7 @@ private:
 
     void writeTestCaseToTrace(S2EExecutionState *state, const ConcreteInputs &inputs);
     void writeSimpleTestCase(llvm::raw_ostream &os, const ConcreteInputs &inputs);
+    void writeRawTestCase(S2EExecutionState* state, const std::string &prefix, const ConcreteInputs &inputs);
 
     bool getFilePart(const std::string &variableName, std::string &filePath, unsigned *part, unsigned *total) const;
     void getFiles(const ConcreteInputs &inputs, TestCaseFiles &files);
