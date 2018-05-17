@@ -166,9 +166,9 @@ void BaseInstructions::makeSymbolic(S2EExecutionState *state, uintptr_t address,
             valueSs << charval(byte);
         }
         valueSs << "'";
-        symb = state->createConcolicArray(nameStr, size, concreteData, varName);
+        symb = state->createConcolicArray(nameStr, address, size, concreteData, varName);
     } else {
-        symb = state->createSymbolicArray(nameStr, size, varName);
+        symb = state->createSymbolicArray(nameStr, address, size, varName);
     }
 
     getInfoStream(state) << "Inserted symbolic data @" << hexval(address) << " of size " << hexval(size) << ": "

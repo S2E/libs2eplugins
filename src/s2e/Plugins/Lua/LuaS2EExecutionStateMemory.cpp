@@ -122,7 +122,7 @@ int LuaS2EExecutionStateMemory::makeConcolic(lua_State *L) {
         return 0;
     }
 
-    std::vector<klee::ref<klee::Expr>> symb = m_state->createConcolicArray(name, size, concreteData);
+    std::vector<klee::ref<klee::Expr>> symb = m_state->createConcolicArray(name, address, size, concreteData);
 
     for (unsigned i = 0; i < size; ++i) {
         if (!m_state->mem()->write(address + i, symb[i])) {
