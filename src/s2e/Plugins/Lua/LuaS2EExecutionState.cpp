@@ -13,6 +13,8 @@
 #include "LuaS2EExecutionStateMemory.h"
 #include "LuaS2EExecutionStateRegisters.h"
 
+#include "LuaInstructionAnnotation.h"
+
 namespace s2e {
 namespace plugins {
 
@@ -26,6 +28,7 @@ Lunar<LuaS2EExecutionState>::RegType LuaS2EExecutionState::methods[] = {
     LUNAR_DECLARE_METHOD(LuaS2EExecutionState, setPluginProperty),
     LUNAR_DECLARE_METHOD(LuaS2EExecutionState, getPluginProperty),
     LUNAR_DECLARE_METHOD(LuaS2EExecutionState, debug),
+    LUNAR_DECLARE_METHOD(LuaS2EExecutionState, registerInstructionAnnotation),
     {0, 0}};
 
 int LuaS2EExecutionState::mem(lua_State *L) {
@@ -123,6 +126,20 @@ int LuaS2EExecutionState::debug(lua_State *L) {
     g_s2e->getDebugStream(m_state) << str << c;
 
     return 0;
+}
+
+int LuaS2EExecutionState::registerInstructionAnnotation(lua_State *L){
+    std::string moduleId=luaL_checkstring(L, 1);
+    std::string annotationName=luaL_checkstring(L, 2);
+    uint64_t pc=luaL_checkinteger(L,3);
+
+    LuaInstructionAnnotation *m_instrAnnotation = static_cast<s2e::plugins::LuaInstructionAnnotation *>(g_s2e->getPlugin("LuaInstructionAnnotation"));
+
+    m_instrAnnotation->initialize();
+    bool ret=m_instrAnnotation->registerAnnotation(moduleId, s2e::plugins::LuaInstructionAnnotation::Annotation(annotationName, pc));
+    lua_pushboolean(L, ret);
+    return 1;
+
 }
 }
 }

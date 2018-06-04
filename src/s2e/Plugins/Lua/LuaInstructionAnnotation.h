@@ -27,9 +27,6 @@ public:
     LuaInstructionAnnotation(S2E *s2e) : Plugin(s2e) {
     }
 
-    void initialize();
-
-private:
     struct Annotation {
         const std::string annotationName;
         const uint64_t pc;
@@ -49,6 +46,13 @@ private:
         }
     };
 
+    void initialize();
+
+    bool registerAnnotation(const std::string &moduleId, const Annotation &annotation);
+
+private:
+
+
     typedef std::set<Annotation> ModuleAnnotations;
     typedef std::map<std::string, ModuleAnnotations *> Annotations;
     Annotations m_annotations;
@@ -57,7 +61,7 @@ private:
     ModuleMap *m_modules;
     sigc::connection m_instructionStart;
 
-    bool registerAnnotation(const std::string &moduleId, const Annotation &annotation);
+
 
     void onTranslateBlockStart(ExecutionSignal *signal, S2EExecutionState *state, TranslationBlock *tb, uint64_t pc);
 

@@ -41,6 +41,7 @@ public:
     int setPluginProperty(lua_State *L);
     int getPluginProperty(lua_State *L);
     int debug(lua_State *L);
+    int registerInstructionAnnotation(lua_State *L);
 };
 }
 }

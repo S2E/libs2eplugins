@@ -63,6 +63,7 @@ int LuaS2EExecutionStateMemory::readBytes(lua_State *L) {
 
 int LuaS2EExecutionStateMemory::write(lua_State *L) {
     long address = (long) luaL_checkinteger(L, 1);
+    void *expr = luaL_checkudata(L, 2, "LuaExpression");
 
     if (lua_isuserdata(L, 2)) {
         void *expr = luaL_checkudata(L, 2, "LuaExpression");

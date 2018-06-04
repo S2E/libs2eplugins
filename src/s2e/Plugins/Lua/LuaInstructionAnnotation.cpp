@@ -87,7 +87,7 @@ bool LuaInstructionAnnotation::registerAnnotation(const std::string &moduleId, c
 
     if (m_annotations[moduleId]->find(annotation) != m_annotations[moduleId]->end()) {
         getWarningsStream() << "attempting to register existing annotation\n";
-        return false;
+        return true;
     }
 
     m_annotations[moduleId]->insert(annotation);
