@@ -27,7 +27,12 @@ void SeedScheduler::initialize() {
     m_timeOfLastCrash = now;
     m_timeOfLastHighPrioritySeed = now;
     m_timeOfLastFetchedSeed = now;
+
+#if defined(CONFIG_SYMBEX) && defined(CONFIG_SYMBEX_MP)
     m_explorationState = WARM_UP;
+#else
+    m_explorationState = WAIT_FOR_NEW_SEEDS;
+#endif
 
     m_seeds = s2e()->getPlugin<SeedSearcher>();
     m_seeds->onSeed.connect(sigc::mem_fun(*this, &SeedScheduler::onSeed));

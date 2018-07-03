@@ -202,7 +202,9 @@ void SeedSearcher::update(klee::ExecutionState *current, const klee::StateSet &a
 
         // This can only happen if state 0 dies for some reason
         if (es == m_initialState) {
+#if defined(CONFIG_SYMBEX) && defined(CONFIG_SYMBEX_MP)
             s2e_warn_assert(cs, false, "Initial state no longer exists, seed look up is not possible");
+#endif
             m_initialState = NULL;
             m_selectSeedState = false;
         }
@@ -469,7 +471,11 @@ void SeedSearcher::handleGetSeedFile(S2EExecutionState *state, S2E_SEEDSEARCHER_
 
     m_selectSeedState = false;
 
+#if defined(CONFIG_SYMBEX) && defined(CONFIG_SYMBEX_MP)
     cmd.GetFile.Result = 2;
+#else
+    cmd.GetFile.Result = 3;
+#endif
 
     if (state == m_initialState) {
         plgState->seedIndex = m_currentSeed.index;
