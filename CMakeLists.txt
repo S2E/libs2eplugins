@@ -45,6 +45,14 @@ execute_process(COMMAND ${LLVM_CONFIG} "--cxxflags"
                 OUTPUT_VARIABLE LLVM_CXXFLAGS
                 OUTPUT_STRIP_TRAILING_WHITESPACE)
 
+if(WITH_TARGET MATCHES "s2e")
+    add_definitions("-DCONFIG_SYMBEX=1")
+    set(WITH_SYMBEX ON)
+    if(NOT (WITH_TARGET MATCHES "s2e_sp"))
+        add_definitions("-DCONFIG_SYMBEX_MP=1")
+        set(WITH_SYMBEX_MP ON)
+    endif()
+endif()
 ##################
 
 find_package(LIBQ REQUIRED)
