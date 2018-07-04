@@ -31,6 +31,8 @@ void SeedScheduler::initialize() {
 #if defined(CONFIG_SYMBEX) && defined(CONFIG_SYMBEX_MP)
     m_explorationState = WARM_UP;
 #else
+    // warm up phase is intended for multi path mode only, in single path mode
+    // we do not want to waste cpu cycles to let guest waiting for seeds
     m_explorationState = WAIT_FOR_NEW_SEEDS;
 #endif
 
