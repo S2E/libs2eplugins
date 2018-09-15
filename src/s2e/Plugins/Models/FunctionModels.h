@@ -12,7 +12,7 @@
 
 #include "BaseFunctionModels.h"
 
-struct S2E_LIBCWRAPPER_COMMAND;
+struct S2E_WRAPPER_COMMAND;
 
 namespace s2e {
 
@@ -32,16 +32,16 @@ public:
     void initialize();
 
 private:
-    void handleStrlen(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, klee::ref<klee::Expr> &expr);
-    void handleStrcmp(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, klee::ref<klee::Expr> &expr);
-    void handleStrncmp(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, klee::ref<klee::Expr> &expr);
-    void handleStrcpy(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd);
-    void handleStrncpy(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd);
-    void handleMemcpy(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd);
-    void handleMemcmp(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, klee::ref<klee::Expr> &expr);
-    void handleStrcat(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd);
-    void handleStrncat(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd);
-    void handleCrc(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, ref<Expr> &ret);
+    void handleStrlen(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, klee::ref<klee::Expr> &expr);
+    void handleStrcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, klee::ref<klee::Expr> &expr);
+    void handleStrncmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, klee::ref<klee::Expr> &expr);
+    void handleStrcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd);
+    void handleStrncpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd);
+    void handleMemcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd);
+    void handleMemcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, klee::ref<klee::Expr> &expr);
+    void handleStrcat(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd);
+    void handleStrncat(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd);
+    void handleCrc(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &ret);
     void handleOpcodeInvocation(S2EExecutionState *state, uint64_t guestDataPtr, uint64_t guestDataSize);
 };
 

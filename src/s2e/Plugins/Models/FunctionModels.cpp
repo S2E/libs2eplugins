@@ -32,7 +32,7 @@ void FunctionModels::initialize() {
     m_memutils = s2e()->getPlugin<MemUtils>();
 }
 
-void FunctionModels::handleStrlen(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
+void FunctionModels::handleStrlen(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
     // Read function arguments
     uint64_t stringAddr = (uint64_t) cmd.Strlen.str;
 
@@ -45,7 +45,7 @@ void FunctionModels::handleStrlen(S2EExecutionState *state, S2E_LIBCWRAPPER_COMM
     }
 }
 
-void FunctionModels::handleStrcmp(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
+void FunctionModels::handleStrcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
     // Read function arguments
     uint64_t stringAddrs[2];
     stringAddrs[0] = (uint64_t) cmd.Strcmp.str1;
@@ -59,7 +59,7 @@ void FunctionModels::handleStrcmp(S2EExecutionState *state, S2E_LIBCWRAPPER_COMM
     }
 }
 
-void FunctionModels::handleStrncmp(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
+void FunctionModels::handleStrncmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
     // Read function arguments
     uint64_t stringAddrs[2];
     stringAddrs[0] = (uint64_t) cmd.Strncmp.str1;
@@ -74,10 +74,10 @@ void FunctionModels::handleStrncmp(S2EExecutionState *state, S2E_LIBCWRAPPER_COM
     }
 }
 
-void FunctionModels::handleStrcpy(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd) {
+void FunctionModels::handleStrcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
     // Read function arguments
     uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strcpy.dst;
+    stringAddrs[0] = (uint64_t) cmd.Strcpy.dest;
     stringAddrs[1] = (uint64_t) cmd.Strcpy.src;
 
     // Perform the string copy. We don't use the return expression here because it is just a concrete address
@@ -89,10 +89,10 @@ void FunctionModels::handleStrcpy(S2EExecutionState *state, S2E_LIBCWRAPPER_COMM
     }
 }
 
-void FunctionModels::handleStrncpy(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd) {
+void FunctionModels::handleStrncpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
     // Read function arguments
     uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strncpy.dst;
+    stringAddrs[0] = (uint64_t) cmd.Strncpy.dest;
     stringAddrs[1] = (uint64_t) cmd.Strncpy.src;
     uint64_t numBytes = cmd.Strncpy.n;
 
@@ -105,10 +105,10 @@ void FunctionModels::handleStrncpy(S2EExecutionState *state, S2E_LIBCWRAPPER_COM
     }
 }
 
-void FunctionModels::handleMemcpy(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd) {
+void FunctionModels::handleMemcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
     // Read function arguments
     uint64_t memAddrs[2];
-    memAddrs[0] = (uint64_t) cmd.Memcpy.dst;
+    memAddrs[0] = (uint64_t) cmd.Memcpy.dest;
     memAddrs[1] = (uint64_t) cmd.Memcpy.src;
     uint64_t numBytes = (int) cmd.Memcpy.n;
 
@@ -121,7 +121,7 @@ void FunctionModels::handleMemcpy(S2EExecutionState *state, S2E_LIBCWRAPPER_COMM
     }
 }
 
-void FunctionModels::handleMemcmp(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
+void FunctionModels::handleMemcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
     // Read function arguments
     uint64_t memAddrs[2];
     memAddrs[0] = (uint64_t) cmd.Memcmp.str1;
@@ -136,10 +136,10 @@ void FunctionModels::handleMemcmp(S2EExecutionState *state, S2E_LIBCWRAPPER_COMM
     }
 }
 
-void FunctionModels::handleStrcat(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd) {
+void FunctionModels::handleStrcat(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
     // Read function arguments
     uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strcat.dst;
+    stringAddrs[0] = (uint64_t) cmd.Strcat.dest;
     stringAddrs[1] = (uint64_t) cmd.Strcat.src;
 
     // Assemble the string concatenation expression. We don't use the return expression here because it is just a
@@ -152,10 +152,10 @@ void FunctionModels::handleStrcat(S2EExecutionState *state, S2E_LIBCWRAPPER_COMM
     }
 }
 
-void FunctionModels::handleStrncat(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd) {
+void FunctionModels::handleStrncat(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
     // Read function arguments
     uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strncat.dst;
+    stringAddrs[0] = (uint64_t) cmd.Strncat.dest;
     stringAddrs[1] = (uint64_t) cmd.Strncat.src;
     uint64_t numBytes = (int) cmd.Strncat.n;
 
@@ -169,7 +169,7 @@ void FunctionModels::handleStrncat(S2EExecutionState *state, S2E_LIBCWRAPPER_COM
     }
 }
 
-void FunctionModels::handleCrc(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND &cmd, ref<Expr> &ret) {
+void FunctionModels::handleCrc(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &ret) {
 
     std::vector<ref<Expr>> buffer;
     cmd.needOrigFunc = 1;
@@ -180,7 +180,7 @@ void FunctionModels::handleCrc(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND
     ref<Expr> initialCrc;
 
     switch (cmd.Crc.type) {
-        case S2E_WRAPPER_CRC16:
+        case LIBZWRAPPER_CRC16:
             initialCrc = state->mem()->read(cmd.Crc.initial_value_ptr, Expr::Int16);
             getDebugStream(state) << "Handling crc16(" << initialCrc << ", " << hexval(cmd.Crc.buffer) << ", "
                                   << cmd.Crc.size << ")\n";
@@ -191,7 +191,7 @@ void FunctionModels::handleCrc(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND
             ret = crc16(initialCrc, buffer);
             break;
 
-        case S2E_WRAPPER_CRC32:
+        case LIBZWRAPPER_CRC32:
             initialCrc = state->mem()->read(cmd.Crc.initial_value_ptr, Expr::Int32);
             getDebugStream(state) << "Handling crc32(" << initialCrc << ", " << hexval(cmd.Crc.buffer) << ", "
                                   << cmd.Crc.size << ")\n";
@@ -213,7 +213,7 @@ void FunctionModels::handleCrc(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND
 // TODO: use template
 #define UPDATE_RET_VAL(CmdType, cmd)                                         \
     do {                                                                     \
-        uint32_t offRet = offsetof(S2E_LIBCWRAPPER_COMMAND, CmdType.ret);    \
+        uint32_t offRet = offsetof(S2E_WRAPPER_COMMAND, CmdType.ret);        \
                                                                              \
         if (!state->mem()->write(guestDataPtr, &cmd, sizeof(cmd))) {         \
             getWarningsStream(state) << "Could not write to guest memory\n"; \
@@ -225,16 +225,16 @@ void FunctionModels::handleCrc(S2EExecutionState *state, S2E_LIBCWRAPPER_COMMAND
     } while (0)
 
 void FunctionModels::handleOpcodeInvocation(S2EExecutionState *state, uint64_t guestDataPtr, uint64_t guestDataSize) {
-    S2E_LIBCWRAPPER_COMMAND command;
+    S2E_WRAPPER_COMMAND command;
 
     if (guestDataSize != sizeof(command)) {
-        getWarningsStream(state) << "S2E_LIBCWRAPPER_COMMAND: "
+        getWarningsStream(state) << "S2E_WRAPPER_COMMAND: "
                                  << "mismatched command structure size " << guestDataSize << "\n";
         exit(-1);
     }
 
     if (!state->mem()->read(guestDataPtr, &command, guestDataSize)) {
-        getWarningsStream(state) << "S2E_LIBCWRAPPER_COMMAND: could not read transmitted data\n";
+        getWarningsStream(state) << "S2E_WRAPPER_COMMAND: could not read transmitted data\n";
         exit(-1);
     }
 
@@ -298,7 +298,7 @@ void FunctionModels::handleOpcodeInvocation(S2EExecutionState *state, uint64_t g
             }
         } break;
 
-        case WRAPPER_CRC: {
+        case LIBZWRAPPER_CRC: {
             ref<Expr> retExpr;
             handleCrc(state, command, retExpr);
             UPDATE_RET_VAL(Crc, command);
