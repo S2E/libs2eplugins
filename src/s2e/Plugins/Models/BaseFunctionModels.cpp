@@ -45,18 +45,20 @@ bool BaseFunctionModels::readArgument(S2EExecutionState *state, unsigned param, 
     return true;
 }
 
-bool BaseFunctionModels::findNullChar(S2EExecutionState *state, uint64_t str, size_t &len) {
+bool BaseFunctionModels::findNullChar(S2EExecutionState *state, Expr::Width charWidth, uint64_t str, size_t &len) {
     assert(str);
+
+    const unsigned charSize = charWidth / CHAR_BIT;
     getDebugStream(state) << "Searching for NULL at " << hexval(str) << "\n";
 
     Solver *solver = s2e()->getExecutor()->getSolver(*state);
-    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
+    const ref<Expr> nullByteExpr = E_CONST('\0', charWidth);
 
     // The amount to increment each next character by depends on the character width, which can be either a
-    // single char (i.e., 1 byte) or a wide char (i.e., 2 bytes)
-    for (len = 0; len < MAX_STRLEN; ++len) {
+    // single char or a wide char
+    for (len = 0; len < MAX_STRLEN; len += charSize) {
         assert(str <= UINT64_MAX - len);
-        ref<Expr> charExpr = m_memutils->read(state, str + len);
+        ref<Expr> charExpr = m_memutils->read(state, str + len, charWidth);
 
         if (charExpr.isNull()) {
             getDebugStream(state) << "Failed to read char " << len << " of string " << hexval(str) << "\n";
@@ -73,37 +75,43 @@ bool BaseFunctionModels::findNullChar(S2EExecutionState *state, uint64_t str, si
         }
     }
 
+    // Length is in bytes. Convert it to number of characters
+    len /= charSize;
+
     if (len == MAX_STRLEN) {
         getDebugStream(state) << "Could not find NULL char\n";
         return false;
     }
 
-    getDebugStream(state) << "Max length " << len << "\n";
+    getDebugStream(state) << "Max length " << len << " chars\n";
 
     return true;
 }
 
-bool BaseFunctionModels::buildStrlenExpr(S2EExecutionState *state, uint64_t str, size_t len, ref<Expr> &retExpr) {
-    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
-    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
+bool BaseFunctionModels::buildStrlenExpr(S2EExecutionState *state, Expr::Width charWidth, uint64_t str, size_t len,
+                                         ref<Expr> &retExpr) {
+    const unsigned charSize = charWidth / CHAR_BIT;
+    const Expr::Width pointerWidth = state->getPointerWidth();
+    const ref<Expr> nullByteExpr = E_CONST('\0', charWidth);
 
-    retExpr = E_CONST(len, width);
+    retExpr = E_CONST(len, pointerWidth);
 
-    for (int i = len - 1; i >= 0; i--) {
-        ref<Expr> charExpr = m_memutils->read(state, str + i);
+    // The given length is in characters, but at this stage we are operating on bytes
+    for (int i = (len * charSize) - charSize; i >= 0; i -= charSize) {
+        ref<Expr> charExpr = m_memutils->read(state, str + i, charWidth);
         if (charExpr.isNull()) {
             getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(str) << "\n";
             return false;
         }
 
-        retExpr = E_ITE(E_EQ(charExpr, nullByteExpr), E_CONST(i, width), retExpr);
+        retExpr = E_ITE(E_EQ(charExpr, nullByteExpr), E_CONST(i, pointerWidth), retExpr);
     }
 
     return true;
 }
 
-bool BaseFunctionModels::buildStrcmpExpr(S2EExecutionState *state, uint64_t str1, uint64_t str2, size_t len,
-                                         ref<Expr> &retExpr) {
+bool BaseFunctionModels::buildStrcmpExpr(S2EExecutionState *state, Expr::Width charWidth, uint64_t str1, uint64_t str2,
+                                         size_t len, ref<Expr> &retExpr) {
     getDebugStream(state) << "Comparing " << len << " chars\n";
 
     if (!str1 || !str2) {
@@ -111,8 +119,12 @@ bool BaseFunctionModels::buildStrcmpExpr(S2EExecutionState *state, uint64_t str1
         return false;
     }
 
+    const unsigned charSize = charWidth / CHAR_BIT;
+    const Expr::Width pointerWidth = state->getPointerWidth();
+    assert(pointerWidth == Expr::Int32 && "-1 representation becomes wrong");
+
     if (len == 0) {
-        retExpr = E_CONST(0, Expr::Int8);
+        retExpr = E_CONST(0, pointerWidth);
         return true;
     }
 
@@ -120,27 +132,24 @@ bool BaseFunctionModels::buildStrcmpExpr(S2EExecutionState *state, uint64_t str1
     // Assemble expression
     //
 
-    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
-    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
+    const ref<Expr> nullByteExpr = E_CONST('\0', charWidth);
+    const ref<Expr> retZeroExpr = E_CONST(0, pointerWidth);
 
-    assert(width == Expr::Int32 && "-1 representation becomes wrong");
-    const ref<Expr> retZeroExpr = E_CONST(0, width);
-
-    for (int i = len - 1; i >= 0; i--) { // also compare null char
-        ref<Expr> char1Expr = m_memutils->read(state, str1 + i);
+    for (int i = (len * charSize) - charSize; i >= 0; i -= charSize) { // also compare NULL char
+        ref<Expr> char1Expr = m_memutils->read(state, str1 + i, charWidth);
         if (char1Expr.isNull()) {
             getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(str1) << "\n";
             return false;
         }
 
-        ref<Expr> char2Expr = m_memutils->read(state, str2 + i);
+        ref<Expr> char2Expr = m_memutils->read(state, str2 + i, charWidth);
         if (char2Expr.isNull()) {
             getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(str2) << "\n";
             return false;
         }
 
-        ref<Expr> subRes = E_SUB(E_ZE(char1Expr, width), E_ZE(char2Expr, width));
-        if ((unsigned) i == len - 1) {
+        ref<Expr> subRes = E_SUB(E_ZE(char1Expr, pointerWidth), E_ZE(char2Expr, pointerWidth));
+        if ((unsigned) i == (len * charSize) - charSize) {
             retExpr = E_ITE(E_GT(char1Expr, char2Expr), subRes, retZeroExpr);
             retExpr = E_ITE(E_LT(char1Expr, char2Expr), subRes, retExpr);
         } else {
@@ -225,39 +234,40 @@ bool BaseFunctionModels::buildStrcmpExpr(S2EExecutionState *state, uint64_t str1
 /// done
 /// \endcode
 ///
-bool BaseFunctionModels::buildStrcatExpr(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t len, bool isNcat,
-                                         ref<Expr> &retExpr) {
+bool BaseFunctionModels::buildStrcatExpr(S2EExecutionState *state, Expr::Width charWidth, uint64_t dest, uint64_t src,
+                                         size_t len, bool isNcat, ref<Expr> &retExpr) {
     size_t destLen;
-    if (!findNullChar(state, dest, destLen)) {
+    if (!findNullChar(state, charWidth, dest, destLen)) {
         getDebugStream(state) << "Failed to find NULL char in string " << hexval(dest) << "\n";
         return false;
     }
 
     ref<Expr> destLenExpr;
-    if (!buildStrlenExpr(state, dest, destLen, destLenExpr)) {
+    if (!buildStrlenExpr(state, charWidth, dest, destLen, destLenExpr)) {
         getDebugStream(state) << "Failed to build length expression for string " << hexval(dest) << "\n";
         return false;
     }
 
     size_t srcLen;
-    if (!findNullChar(state, src, srcLen)) {
+    if (!findNullChar(state, charWidth, src, srcLen)) {
         getDebugStream(state) << "Failed to find NULL char in string " << hexval(src) << "\n";
         return false;
     }
 
     ref<Expr> srcLenExpr;
-    if (!buildStrlenExpr(state, src, srcLen, srcLenExpr)) {
+    if (!buildStrlenExpr(state, charWidth, src, srcLen, srcLenExpr)) {
         getDebugStream(state) << "Failed to build length expression for string " << hexval(src) << "\n";
         return false;
     }
 
-    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
+    const unsigned charSize = charWidth / CHAR_BIT;
+    const ref<Expr> nullByteExpr = E_CONST('\0', charWidth);
     const Expr::Width width = destLenExpr.get()->getWidth();
     retExpr = E_CONST(dest, width);
 
     // FIXME: O(n2)
-    for (int i = destLen + len; i >= 0; i--) {
-        ref<Expr> destExpr = m_memutils->read(state, dest + i);
+    for (int i = (destLen + len) * charSize; i >= 0; i -= charSize) {
+        ref<Expr> destExpr = m_memutils->read(state, dest + i, charWidth);
         if (destExpr.isNull()) {
             getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(dest) << "\n";
             return false;
@@ -267,12 +277,12 @@ bool BaseFunctionModels::buildStrcatExpr(S2EExecutionState *state, uint64_t dest
         ref<Expr> writeExpr, subWrite = nullByteExpr;
 
         // construct subWrite expression
-        for (int j = 0; j <= i; j++) {
+        for (int j = 0; j <= i; j += charSize) {
             ref<Expr> destLenConds = E_EQ(destLenExpr, E_CONST(i - j, width));
             ref<Expr> srcLenCondsEq = E_EQ(srcLenExpr, E_CONST(j, width));
             ref<Expr> srcLenCondsLower = E_LT(srcLenExpr, E_CONST(j, width));
 
-            ref<Expr> srcExpr = m_memutils->read(state, src + j);
+            ref<Expr> srcExpr = m_memutils->read(state, src + j, charWidth);
             if (srcExpr.isNull()) {
                 getDebugStream(state) << "Failed to read char " << j << " of string " << hexval(src) << "\n";
                 return false;
@@ -317,12 +327,14 @@ bool BaseFunctionModels::buildStrcatExpr(S2EExecutionState *state, uint64_t dest
 ///     dest[0] = src[0]
 ///     \endcode
 ///
-bool BaseFunctionModels::strcpyHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strcpy(" << hexval(dest) << ", " << hexval(src) << ")\n";
+bool BaseFunctionModels::strcpyHelper(S2EExecutionState *state, Expr::Width charWidth, uint64_t dest, uint64_t src,
+                                      ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling " << (charWidth == Expr::Int8 ? "str" : "wcs") << "cpy(" << hexval(dest) << ", "
+                          << hexval(src) << ")\n";
 
     // Calculate the length of the source string
     size_t len;
-    if (!findNullChar(state, src, len)) {
+    if (!findNullChar(state, charWidth, src, len)) {
         getDebugStream(state) << "Failed to find NULL char in string " << hexval(src) << "\n";
         return false;
     }
@@ -331,20 +343,20 @@ bool BaseFunctionModels::strcpyHelper(S2EExecutionState *state, uint64_t dest, u
     // Perform the string copy. The address of the destination string is returned
     //
 
-    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
+    const unsigned charSize = charWidth / CHAR_BIT;
+    const ref<Expr> nullByteExpr = E_CONST('\0', charWidth);
     ref<Expr> accExpr = E_CONST(1, Expr::Bool);
 
-    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
-    retExpr = E_CONST(dest, width);
+    retExpr = E_CONST(dest, state->getPointerWidth());
 
-    for (unsigned i = 0; i < len; i++) {
-        ref<Expr> destExpr = m_memutils->read(state, dest + i);
+    for (unsigned i = 0; i < len * charSize; i += charSize) {
+        ref<Expr> destExpr = m_memutils->read(state, dest + i, charWidth);
         if (destExpr.isNull()) {
             getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(dest) << "\n";
             return false;
         }
 
-        ref<Expr> srcExpr = m_memutils->read(state, src + i);
+        ref<Expr> srcExpr = m_memutils->read(state, src + i, charWidth);
         if (srcExpr.isNull()) {
             getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(src) << "\n";
             return false;
@@ -359,7 +371,7 @@ bool BaseFunctionModels::strcpyHelper(S2EExecutionState *state, uint64_t dest, u
         accExpr = E_AND(E_NOT(E_EQ(srcExpr, nullByteExpr)), accExpr);
     }
 
-    if (!state->mem()->write(dest + len, nullByteExpr)) {
+    if (!state->mem()->write(dest + (len * charSize), nullByteExpr)) {
         getDebugStream(state) << "Failed to write to terminate byte\n";
         return false;
     }
@@ -385,33 +397,36 @@ bool BaseFunctionModels::strcpyHelper(S2EExecutionState *state, uint64_t dest, u
 ///     dest[0] = src[0]
 ///     \endcode
 ///
-bool BaseFunctionModels::strncpyHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t n,
-                                       ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strncpy(" << hexval(dest) << ", " << hexval(src) << ", " << n << ")\n";
+bool BaseFunctionModels::strncpyHelper(S2EExecutionState *state, Expr::Width charWidth, uint64_t dest, uint64_t src,
+                                       size_t n, ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling " << (charWidth == Expr::Int8 ? "str" : "wcs") << "ncpy(" << hexval(dest) << ", "
+                          << hexval(src) << ", " << n << ")\n";
 
     //
     // Perform the string copy. The address of the destination string is returned
     //
 
-    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
+    const unsigned charSize = charWidth / CHAR_BIT;
+    const ref<Expr> nullByteExpr = E_CONST('\0', charWidth);
     ref<Expr> accExpr = E_CONST(1, Expr::Bool);
 
-    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
-    retExpr = E_CONST(dest, width);
+    retExpr = E_CONST(dest, state->getPointerWidth());
 
-    for (unsigned i = 0; i < n; i++) {
-        ref<Expr> srcExpr = m_memutils->read(state, src + i);
+    for (unsigned i = 0; i < n * charSize; i += charSize) {
+        ref<Expr> srcExpr = m_memutils->read(state, src + i, charWidth);
         if (srcExpr.isNull()) {
             getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(src) << "\n";
             return false;
         }
 
-        ref<Expr> writeExpr = E_ITE(accExpr, srcExpr, nullByteExpr); // null padding
+        // Null padding
+        ref<Expr> writeExpr = E_ITE(accExpr, srcExpr, nullByteExpr);
 
         if (!state->mem()->write(dest + i, writeExpr)) {
             getDebugStream(state) << "Failed to write to destination string\n";
             return false;
         }
+
         accExpr = E_AND(E_NOT(E_EQ(srcExpr, nullByteExpr)), accExpr);
     }
 
@@ -441,8 +456,9 @@ bool BaseFunctionModels::strncpyHelper(S2EExecutionState *state, uint64_t dest, 
 /// }
 /// \endcode
 ///
-bool BaseFunctionModels::strlenHelper(S2EExecutionState *state, uint64_t str, ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strlen(" << hexval(str) << ")\n";
+bool BaseFunctionModels::strlenHelper(S2EExecutionState *state, Expr::Width charWidth, uint64_t str,
+                                      ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling " << (charWidth == Expr::Int8 ? "str" : "wcs") << "len(" << hexval(str) << ")\n";
 
     if (!str) {
         getDebugStream(state) << "Got NULL input\n";
@@ -451,74 +467,80 @@ bool BaseFunctionModels::strlenHelper(S2EExecutionState *state, uint64_t str, re
 
     // Calculate the string length
     size_t len;
-    if (!findNullChar(state, str, len)) {
+    if (!findNullChar(state, charWidth, str, len)) {
         getDebugStream(state) << "Failed to find NULL char in string " << hexval(str) << "\n";
         return false;
     }
 
     // Assemble the expression
-    return buildStrlenExpr(state, str, len, retExpr);
+    return buildStrlenExpr(state, charWidth, str, len, retExpr);
 }
 
-bool BaseFunctionModels::strcmpHelper(S2EExecutionState *state, uint64_t str1, uint64_t str2, ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strcmp(" << hexval(str1) << ", " << hexval(str2) << ")\n";
+bool BaseFunctionModels::strcmpHelper(S2EExecutionState *state, Expr::Width charWidth, uint64_t str1, uint64_t str2,
+                                      ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling " << (charWidth == Expr::Int8 ? "str" : "wcs") << "cmp(" << hexval(str1) << ", "
+                          << hexval(str2) << ")\n";
 
     // Calculate the maximum possible string lengths
 
     size_t str1Len;
-    if (!findNullChar(state, str1, str1Len)) {
+    if (!findNullChar(state, charWidth, str1, str1Len)) {
         getDebugStream(state) << "Failed to find NULL char in string " << hexval(str1) << "\n";
         return false;
     }
 
     size_t str2Len;
-    if (!findNullChar(state, str2, str2Len)) {
+    if (!findNullChar(state, charWidth, str2, str2Len)) {
         getDebugStream(state) << "Failed to find NULL char in string " << hexval(str2) << "\n";
         return false;
     }
 
-    return buildStrcmpExpr(state, str1, str2, std::min(str1Len, str2Len) + 1, retExpr);
+    return buildStrcmpExpr(state, charWidth, str1, str2, std::min(str1Len, str2Len) + 1, retExpr);
 }
 
-bool BaseFunctionModels::strncmpHelper(S2EExecutionState *state, uint64_t str1, uint64_t str2, size_t n,
-                                       ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strncmp(" << hexval(str1) << ", " << hexval(str2) << ", " << n << ")\n";
+bool BaseFunctionModels::strncmpHelper(S2EExecutionState *state, Expr::Width charWidth, uint64_t str1, uint64_t str2,
+                                       size_t n, ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling " << (charWidth == Expr::Int8 ? "str" : "wcs") << "ncmp(" << hexval(str1) << ", "
+                          << hexval(str2) << ", " << n << ")\n";
 
     // Calculate the maximum possible string lengths
 
     size_t str1Len;
-    if (!findNullChar(state, str1, str1Len)) {
+    if (!findNullChar(state, charWidth, str1, str1Len)) {
         getDebugStream(state) << "Failed to find NULL char in string " << hexval(str1) << "\n";
         return false;
     }
 
     size_t str2Len;
-    if (!findNullChar(state, str2, str2Len)) {
+    if (!findNullChar(state, charWidth, str2, str2Len)) {
         getDebugStream(state) << "Failed to find NULL char in string " << hexval(str2) << "\n";
         return false;
     }
 
-    return buildStrcmpExpr(state, str1, str2, std::min(std::min(str1Len, str2Len) + 1, n), retExpr);
+    return buildStrcmpExpr(state, charWidth, str1, str2, std::min(std::min(str1Len, str2Len) + 1, n), retExpr);
 }
 
-bool BaseFunctionModels::strcatHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strcat(" << hexval(dest) << ", " << hexval(src) << ")\n";
+bool BaseFunctionModels::strcatHelper(S2EExecutionState *state, Expr::Width charWidth, uint64_t dest, uint64_t src,
+                                      ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling " << (charWidth == Expr::Int8 ? "str" : "wcs") << "cat(" << hexval(dest) << ", "
+                          << hexval(src) << ")\n";
 
     size_t srcLen;
-    if (!findNullChar(state, src, srcLen)) {
+    if (!findNullChar(state, charWidth, src, srcLen)) {
         getDebugStream(state) << "Failed to find NULL char in string " << hexval(src) << "\n";
         return false;
     }
 
-    return buildStrcatExpr(state, dest, src, srcLen, false, retExpr);
+    return buildStrcatExpr(state, charWidth, dest, src, srcLen, false, retExpr);
 }
 
-bool BaseFunctionModels::strncatHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t n,
-                                       ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strncat(" << hexval(dest) << ", " << hexval(src) << ", " << n << ")\n";
+bool BaseFunctionModels::strncatHelper(S2EExecutionState *state, Expr::Width charWidth, uint64_t dest, uint64_t src,
+                                       size_t n, ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling " << (charWidth == Expr::Int8 ? "str" : "wcs") << "ncat(" << hexval(dest) << ", "
+                          << hexval(src) << ", " << n << ")\n";
     assert(n && "Strncat of size 0 should be go through the original strncat in libc!");
 
-    return buildStrcatExpr(state, dest, src, n, true, retExpr);
+    return buildStrcatExpr(state, charWidth, dest, src, n, true, retExpr);
 }
 
 ///

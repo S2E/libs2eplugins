@@ -22,8 +22,6 @@ class S2EExecutionState;
 
 namespace plugins {
 
-class ModuleExecutionDetector;
-
 namespace models {
 
 class StaticFunctionModels : public BaseFunctionModels {

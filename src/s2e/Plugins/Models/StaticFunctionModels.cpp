@@ -150,7 +150,7 @@ bool StaticFunctionModels::handleStrcpy(S2EExecutionState *state) {
 
     // Assemble the string copy expression
     ref<Expr> retExpr;
-    return strcpyHelper(state, dest, src, retExpr);
+    return strcpyHelper(state, Expr::Int8, dest, src, retExpr);
 }
 
 bool StaticFunctionModels::handleStrncpy(S2EExecutionState *state) {
@@ -175,7 +175,7 @@ bool StaticFunctionModels::handleStrncpy(S2EExecutionState *state) {
 
     // Assemble the string copy expression
     ref<Expr> retExpr;
-    return strncpyHelper(state, dest, src, n, retExpr);
+    return strncpyHelper(state, Expr::Int8, dest, src, n, retExpr);
 }
 
 bool StaticFunctionModels::handleStrlen(S2EExecutionState *state) {
@@ -188,7 +188,7 @@ bool StaticFunctionModels::handleStrlen(S2EExecutionState *state) {
 
     // Assemble the string length expression
     ref<Expr> retExpr;
-    if (strlenHelper(state, str, retExpr)) {
+    if (strlenHelper(state, Expr::Int8, str, retExpr)) {
         state->regs()->write(offsetof(CPUX86State, regs[R_EAX]), retExpr);
 
         return true;
@@ -213,11 +213,11 @@ bool StaticFunctionModels::handleStrcmp(S2EExecutionState *state) {
 
     // Assemble the string compare expression
     ref<Expr> retExpr;
-    if (strcmpHelper(state, str1, str2, retExpr)) {
+    if (strcmpHelper(state, Expr::Int8, str1, str2, retExpr)) {
         // Invert the result if required
         if (getBool(state, "inverted")) {
             getDebugStream(state) << "strcmp returns inverted result\n";
-            retExpr = E_SUB(E_CONST(0, state->getPointerSize() * CHAR_BIT), retExpr);
+            retExpr = E_SUB(E_CONST(0, state->getPointerWidth()), retExpr);
         }
 
         state->regs()->write(offsetof(CPUX86State, regs[R_EAX]), retExpr);
@@ -250,11 +250,11 @@ bool StaticFunctionModels::handleStrncmp(S2EExecutionState *state) {
 
     // Assemble the string compare expression
     ref<Expr> retExpr;
-    if (strncmpHelper(state, str1, str2, n, retExpr)) {
+    if (strncmpHelper(state, Expr::Int8, str1, str2, n, retExpr)) {
         // Invert the result if required
         if (getBool(state, "inverted")) {
             getDebugStream(state) << "strncmp returns inverted result\n";
-            retExpr = E_SUB(E_CONST(0, state->getPointerSize() * CHAR_BIT), retExpr);
+            retExpr = E_SUB(E_CONST(0, state->getPointerWidth()), retExpr);
         }
 
         state->regs()->write(offsetof(CPUX86State, regs[R_EAX]), retExpr);
@@ -281,7 +281,7 @@ bool StaticFunctionModels::handleStrcat(S2EExecutionState *state) {
 
     // Assemble the string concatenation expression
     ref<Expr> retExpr;
-    return strcatHelper(state, dest, src, retExpr);
+    return strcatHelper(state, Expr::Int8, dest, src, retExpr);
 }
 
 bool StaticFunctionModels::handleStrncat(S2EExecutionState *state) {
@@ -306,7 +306,7 @@ bool StaticFunctionModels::handleStrncat(S2EExecutionState *state) {
 
     // Assemble the string concatenation expression
     ref<Expr> retExpr;
-    return strncatHelper(state, dest, src, n, retExpr);
+    return strncatHelper(state, Expr::Int8, dest, src, n, retExpr);
 }
 
 bool StaticFunctionModels::handleMemcpy(S2EExecutionState *state) {

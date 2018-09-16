@@ -35,7 +35,7 @@ void FunctionModels::initialize() {
 void FunctionModels::handleStrcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
     // Perform the string copy. We don't use the return expression here because it is just a concrete address
     ref<Expr> retExpr;
-    if (strcpyHelper(state, cmd.Strcpy.dest, cmd.Strcpy.src, retExpr)) {
+    if (strcpyHelper(state, cmd.Strcpy.char_size * CHAR_BIT, cmd.Strcpy.dest, cmd.Strcpy.src, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -45,7 +45,8 @@ void FunctionModels::handleStrcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND 
 void FunctionModels::handleStrncpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
     // Perform the string copy. We don't use the return expression here because it is just a concrete address
     ref<Expr> retExpr;
-    if (strncpyHelper(state, cmd.Strncpy.dest, cmd.Strncpy.src, cmd.Strncpy.n, retExpr)) {
+    if (strncpyHelper(state, cmd.Strncpy.char_size * CHAR_BIT, cmd.Strncpy.dest, cmd.Strncpy.src, cmd.Strncpy.n,
+                      retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -54,7 +55,7 @@ void FunctionModels::handleStrncpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND
 
 void FunctionModels::handleStrlen(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
     // Assemble the string length expression
-    if (strlenHelper(state, cmd.Strlen.str, retExpr)) {
+    if (strlenHelper(state, cmd.Strlen.char_size * CHAR_BIT, cmd.Strlen.str, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -63,7 +64,7 @@ void FunctionModels::handleStrlen(S2EExecutionState *state, S2E_WRAPPER_COMMAND 
 
 void FunctionModels::handleStrcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
     // Assemble the string compare expression
-    if (strcmpHelper(state, cmd.Strcmp.str1, cmd.Strcmp.str2, retExpr)) {
+    if (strcmpHelper(state, cmd.Strcmp.char_size * CHAR_BIT, cmd.Strcmp.str1, cmd.Strcmp.str2, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -72,7 +73,8 @@ void FunctionModels::handleStrcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND 
 
 void FunctionModels::handleStrncmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
     // Assemble the string compare expression
-    if (strncmpHelper(state, cmd.Strncmp.str1, cmd.Strncmp.str2, cmd.Strncmp.n, retExpr)) {
+    if (strncmpHelper(state, cmd.Strncmp.char_size * CHAR_BIT, cmd.Strncmp.str1, cmd.Strncmp.str2, cmd.Strncmp.n,
+                      retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -83,7 +85,7 @@ void FunctionModels::handleStrcat(S2EExecutionState *state, S2E_WRAPPER_COMMAND 
     // Assemble the string concatenation expression. We don't use the return expression here because it is just a
     // concrete address
     ref<Expr> retExpr;
-    if (strcatHelper(state, cmd.Strcat.dest, cmd.Strcat.src, retExpr)) {
+    if (strcatHelper(state, cmd.Strcat.char_size * CHAR_BIT, cmd.Strcat.dest, cmd.Strcat.src, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -94,7 +96,8 @@ void FunctionModels::handleStrncat(S2EExecutionState *state, S2E_WRAPPER_COMMAND
     // Assemble the string concatenation expression. We don't use the return expression here because it is just a
     // concrete address
     ref<Expr> retExpr;
-    if (strncatHelper(state, cmd.Strncat.dest, cmd.Strncat.src, cmd.Strncat.n, retExpr)) {
+    if (strncatHelper(state, cmd.Strncat.char_size * CHAR_BIT, cmd.Strncat.dest, cmd.Strncat.src, cmd.Strncat.n,
+                      retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -178,8 +181,7 @@ void FunctionModels::handleOpcodeInvocation(S2EExecutionState *state, uint64_t g
     S2E_WRAPPER_COMMAND command;
 
     if (guestDataSize != sizeof(command)) {
-        getWarningsStream(state) << "S2E_WRAPPER_COMMAND: "
-                                 << "mismatched command structure size " << guestDataSize << "\n";
+        getWarningsStream(state) << "S2E_WRAPPER_COMMAND: mismatched command structure size " << guestDataSize << "\n";
         exit(-1);
     }
 
