@@ -24,8 +24,7 @@ namespace plugins {
 namespace models {
 
 ///
-/// \brief Abstract base class for modelling functions that commonly result in
-/// state explosion
+/// \brief Abstract base class for modelling functions that commonly result in state explosion
 ///
 class BaseFunctionModels : public Plugin {
 public:
@@ -45,22 +44,71 @@ protected:
     klee::UpdateList *m_crc16_ul;
     klee::UpdateList *m_crc32_ul;
 
+    /// \brief Reads a (concrete) function argument from the stack
+    /// \param state S2E execution state
+    /// \param param Index of the function argument to read. The first function argument has index 0
+    /// \param[out] arg The function argument's value
+    /// \return \c true if the function argument is read successfully, \c false otherwise
+    bool readArgument(S2EExecutionState *state, unsigned param, uint64_t &arg);
+
+    /// \brief Finds a (possibly symbolic) string's concrete \c NULL terminator and determines the string's maximum
+    ///        possible length
+    /// \param state S2E execution state
+    /// \param str The start address of the string to find the \c NULL terminator in
+    /// \param[out] len The maximum possible length of a (possibly symbolic) string
+    /// \return \c true if the \c NULL terminator can be found in the given string, or \c false otherwise
+    bool findNullChar(S2EExecutionState *state, uint64_t str, size_t &len);
+
+    /// \brief Helper method for constructing a symbolic expression of a string's length
+    /// \param state S2E execution state
+    /// \param str The start address of the string to calculate the string length of
+    /// \param len The concrete length of the string (which is also the maximum possible length of a string)
+    /// \param[out] retExpr The symbolic expression that describes the length of a (possibly symbolic) string
+    /// \return \c true if the string length expression can be constructed, or \c false otherwise
+    bool buildStrlenExpr(S2EExecutionState *state, uint64_t str, size_t len, ref<Expr> &retExpr);
+
+    /// \brief Helper function for comparing two strings
+    /// \param state S2E execution state
+    /// \param str1 Start address of the first string
+    /// \param str2 Start address of the second string
+    /// \param len The concrete length of the string (which is also the maximum possible length of a symbolic string)
+    /// \param[out] retExpr The symbolic expression that describes the string comparison result. The comparison result
+    /// can be calculated by examining each byte of the two strings as follows:
+    ///
+    /// - If str1[0] < str2[0], then retExpr = -1
+    /// - If str1[0] > str2[0], then retExpr = +1
+    /// - If str1[0] == str2[0], then check whether str1[1] is '\0'. If yes, the result will be 0. Otherwise we need to
+    ///   perform the same checks on (str1[1], str2[1]), (str1[2], str2[2]), ..., (str1[len - 1], str2[len - 1])
+    bool buildStrcmpExpr(S2EExecutionState *state, uint64_t str1, uint64_t str2, size_t len, ref<Expr> &retExpr);
+
+    bool buildStrcatExpr(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t len, bool isNcat,
+                         ref<Expr> &retExpr);
+
+    //
+    // String functions (including wide strings)
+    //
+
+    bool strcpyHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, ref<Expr> &retExpr);
+    bool strncpyHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t n, ref<Expr> &retExpr);
+    bool strlenHelper(S2EExecutionState *state, uint64_t str, ref<Expr> &retExpr);
+    bool strcmpHelper(S2EExecutionState *state, uint64_t str1, uint64_t str2, ref<Expr> &retExpr);
+    bool strncmpHelper(S2EExecutionState *state, uint64_t str1, uint64_t str2, size_t n, ref<Expr> &retExpr);
+    bool strcatHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, ref<Expr> &retExpr);
+    bool strncatHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t n, ref<Expr> &retExpr);
+
+    //
+    // Memory functions
+    //
+
+    bool memcmpHelper(S2EExecutionState *state, uint64_t s1, uint64_t s2, size_t n, ref<Expr> &retExpr);
+    bool memcpyHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t n, ref<Expr> &retExpr);
+
+    //
+    // CRC functions
+    //
+
     ref<Expr> crc32(const ref<Expr> &initialCrc, const std::vector<ref<Expr>> &input, bool xorResult);
     ref<Expr> crc16(const ref<Expr> &initialCrc, const std::vector<ref<Expr>> &input);
-
-    bool readArgument(S2EExecutionState *state, unsigned param, uint64_t &arg);
-    bool findNullChar(S2EExecutionState *state, uint64_t stringAddr, size_t &len);
-
-    bool strlenHelper(S2EExecutionState *state, uint64_t stringAddr, size_t &len, ref<Expr> &retExpr);
-    bool strcmpHelper(S2EExecutionState *state, const uint64_t strAddrs[2], ref<Expr> &retExpr);
-    bool strncmpHelper(S2EExecutionState *state, const uint64_t strAddrs[2], size_t size, ref<Expr> &retExpr);
-    bool strcmpHelperCommon(S2EExecutionState *state, const uint64_t strAddrs[2], uint64_t memSize, ref<Expr> &retExpr);
-    bool strcpyHelper(S2EExecutionState *state, const uint64_t strAddrs[2], ref<Expr> &retExpr);
-    bool strncpyHelper(S2EExecutionState *state, const uint64_t strAddrs[2], uint64_t numBytes, ref<Expr> &retExpr);
-    bool memcmpHelper(S2EExecutionState *state, const uint64_t memAddrs[2], uint64_t numBytes, ref<Expr> &retExpr);
-    bool memcpyHelper(S2EExecutionState *state, const uint64_t memAddrs[2], uint64_t numBytes, ref<Expr> &retExpr);
-    bool strcatHelper(S2EExecutionState *state, const uint64_t strAddrs[2], ref<Expr> &retExpr, uint64_t numBytes = 0,
-                      bool isNcat = false);
 };
 
 } // namespace models

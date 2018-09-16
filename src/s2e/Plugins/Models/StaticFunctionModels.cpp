@@ -53,15 +53,17 @@ void StaticFunctionModels::initialize() {
     m_detector->onModuleTranslateBlockEnd.connect(
         sigc::mem_fun(*this, &StaticFunctionModels::onModuleTranslateBlockEnd));
 
+    m_handlers["strcpy"] = &StaticFunctionModels::handleStrcpy;
+    m_handlers["strncpy"] = &StaticFunctionModels::handleStrncpy;
     m_handlers["strlen"] = &StaticFunctionModels::handleStrlen;
     m_handlers["strcmp"] = &StaticFunctionModels::handleStrcmp;
     m_handlers["strncmp"] = &StaticFunctionModels::handleStrncmp;
-    m_handlers["strcpy"] = &StaticFunctionModels::handleStrcpy;
-    m_handlers["strncpy"] = &StaticFunctionModels::handleStrncpy;
-    m_handlers["memcpy"] = &StaticFunctionModels::handleMemcpy;
-    m_handlers["memcmp"] = &StaticFunctionModels::handleMemcmp;
     m_handlers["strcat"] = &StaticFunctionModels::handleStrcat;
     m_handlers["strncat"] = &StaticFunctionModels::handleStrncat;
+
+    m_handlers["memcpy"] = &StaticFunctionModels::handleMemcpy;
+    m_handlers["memcmp"] = &StaticFunctionModels::handleMemcmp;
+
     m_handlers["crc16"] = &StaticFunctionModels::handleCrc16;
     m_handlers["crc32"] = &StaticFunctionModels::handleCrc32;
 
@@ -133,18 +135,61 @@ void StaticFunctionModels::onCall(S2EExecutionState *state, uint64_t pc, StaticF
     }
 }
 
+bool StaticFunctionModels::handleStrcpy(S2EExecutionState *state, uint64_t pc) {
+    // Read function arguments
+    uint64_t dest;
+    if (!readArgument(state, 0, dest)) {
+        getDebugStream(state) << "Failed to read dest argument\n";
+        return false;
+    }
+
+    uint64_t src;
+    if (!readArgument(state, 1, src)) {
+        getDebugStream(state) << "Failed to read src argument\n";
+        return false;
+    }
+
+    // Assemble the string copy expression
+    ref<Expr> retExpr;
+    return strcpyHelper(state, dest, src, retExpr);
+}
+
+bool StaticFunctionModels::handleStrncpy(S2EExecutionState *state, uint64_t pc) {
+    // Read function arguments
+    uint64_t dest;
+    if (!readArgument(state, 0, dest)) {
+        getDebugStream(state) << "Failed to read dest argument\n";
+        return false;
+    }
+
+    uint64_t src;
+    if (!readArgument(state, 1, src)) {
+        getDebugStream(state) << "Failed to read src argument\n";
+        return false;
+    }
+
+    size_t n;
+    if (!readArgument(state, 2, n)) {
+        getDebugStream(state) << "Failed to read n argument\n";
+        return false;
+    }
+
+    // Assemble the string copy expression
+    ref<Expr> retExpr;
+    return strncpyHelper(state, dest, src, n, retExpr);
+}
+
 bool StaticFunctionModels::handleStrlen(S2EExecutionState *state, uint64_t pc) {
     // Read function arguments
-    uint64_t stringAddr;
-    if (!readArgument(state, 0, stringAddr)) {
-        getDebugStream(state) << "Failed to read stringAddr argument\n";
+    uint64_t str;
+    if (!readArgument(state, 0, str)) {
+        getDebugStream(state) << "Failed to read str argument\n";
         return false;
     }
 
     // Assemble the string length expression
-    size_t len;
     ref<Expr> retExpr;
-    if (strlenHelper(state, stringAddr, len, retExpr)) {
+    if (strlenHelper(state, str, retExpr)) {
         state->regs()->write(offsetof(CPUX86State, regs[R_EAX]), retExpr);
 
         return true;
@@ -155,17 +200,21 @@ bool StaticFunctionModels::handleStrlen(S2EExecutionState *state, uint64_t pc) {
 
 bool StaticFunctionModels::handleStrcmp(S2EExecutionState *state, uint64_t pc) {
     // Read function arguments
-    uint64_t stringAddrs[2];
-    for (int i = 0; i < 2; i++) {
-        if (!readArgument(state, i, stringAddrs[i])) {
-            getDebugStream(state) << "Failed to read stringAddr argument\n";
-            return false;
-        }
+    uint64_t str1;
+    if (!readArgument(state, 0, str1)) {
+        getDebugStream(state) << "Failed to read str1 argument\n";
+        return false;
+    }
+
+    uint64_t str2;
+    if (!readArgument(state, 1, str2)) {
+        getDebugStream(state) << "Failed to read str2 argument\n";
+        return false;
     }
 
     // Assemble the string compare expression
     ref<Expr> retExpr;
-    if (strcmpHelper(state, stringAddrs, retExpr)) {
+    if (strcmpHelper(state, str1, str2, retExpr)) {
         // Invert the result if required
         if (getBool(state, "inverted")) {
             getDebugStream(state) << "strcmp returns inverted result\n";
@@ -182,23 +231,27 @@ bool StaticFunctionModels::handleStrcmp(S2EExecutionState *state, uint64_t pc) {
 
 bool StaticFunctionModels::handleStrncmp(S2EExecutionState *state, uint64_t pc) {
     // Read function arguments
-    uint64_t stringAddrs[2];
-    for (int i = 0; i < 2; i++) {
-        if (!readArgument(state, i, stringAddrs[i])) {
-            getDebugStream(state) << "Failed to read stringAddr argument\n";
-            return false;
-        }
+    uint64_t str1;
+    if (!readArgument(state, 0, str1)) {
+        getDebugStream(state) << "Failed to read str1 argument\n";
+        return false;
     }
 
-    uint64_t maxSize;
-    if (!readArgument(state, 2, maxSize)) {
-        getDebugStream(state) << "Failed to read maxSize argument\n";
+    uint64_t str2;
+    if (!readArgument(state, 1, str2)) {
+        getDebugStream(state) << "Failed to read str2 argument\n";
+        return false;
+    }
+
+    size_t n;
+    if (!readArgument(state, 2, n)) {
+        getDebugStream(state) << "Failed to read n argument\n";
         return false;
     }
 
     // Assemble the string compare expression
     ref<Expr> retExpr;
-    if (strncmpHelper(state, stringAddrs, maxSize, retExpr)) {
+    if (strncmpHelper(state, str1, str2, n, retExpr)) {
         // Invert the result if required
         if (getBool(state, "inverted")) {
             getDebugStream(state) << "strncmp returns inverted result\n";
@@ -213,140 +266,100 @@ bool StaticFunctionModels::handleStrncmp(S2EExecutionState *state, uint64_t pc) 
     }
 }
 
-bool StaticFunctionModels::handleStrcpy(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleStrcat(S2EExecutionState *state, uint64_t pc) {
     // Read function arguments
-    uint64_t stringAddrs[2];
-    for (int i = 0; i < 2; i++) {
-        if (!readArgument(state, i, stringAddrs[i])) {
-            getDebugStream(state) << "Failed to read stringAddr argument\n";
-            return false;
-        }
-    }
-
-    // Assemble the string copy expression
-    ref<Expr> retExpr;
-    if (strcpyHelper(state, stringAddrs, retExpr)) {
-        return true;
-    } else {
+    uint64_t dest;
+    if (!readArgument(state, 0, dest)) {
+        getDebugStream(state) << "Failed to read dest argument\n";
         return false;
     }
+
+    uint64_t src;
+    if (!readArgument(state, 1, src)) {
+        getDebugStream(state) << "Failed to read src argument\n";
+        return false;
+    }
+
+    // Assemble the string concatenation expression
+    ref<Expr> retExpr;
+    return strcatHelper(state, dest, src, retExpr);
 }
 
-bool StaticFunctionModels::handleStrncpy(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleStrncat(S2EExecutionState *state, uint64_t pc) {
     // Read function arguments
-    uint64_t stringAddrs[2];
-    for (int i = 0; i < 2; i++) {
-        if (!readArgument(state, i, stringAddrs[i])) {
-            getDebugStream(state) << "Failed to read stringAddr argument\n";
-            return false;
-        }
-    }
-
-    uint64_t numBytes;
-    if (!readArgument(state, 2, numBytes)) {
-        getDebugStream(state) << "Failed to read numBytes argument\n";
+    uint64_t dest;
+    if (!readArgument(state, 0, dest)) {
+        getDebugStream(state) << "Failed to read dest argument\n";
         return false;
     }
 
-    // Assemble the string copy expression
+    uint64_t src;
+    if (!readArgument(state, 1, src)) {
+        getDebugStream(state) << "Failed to read src argument\n";
+        return false;
+    }
+
+    size_t n;
+    if (!readArgument(state, 2, n)) {
+        getDebugStream(state) << "Failed to read n argument\n";
+        return false;
+    }
+
+    // Assemble the string concatenation expression
     ref<Expr> retExpr;
-    if (strncpyHelper(state, stringAddrs, numBytes, retExpr)) {
-        return true;
-    } else {
-        return false;
-    }
+    return strncatHelper(state, dest, src, n, retExpr);
 }
 
 bool StaticFunctionModels::handleMemcpy(S2EExecutionState *state, uint64_t pc) {
     // Read function arguments
-    uint64_t memAddrs[2];
-    for (int i = 0; i < 2; i++) {
-        if (!readArgument(state, i, memAddrs[i])) {
-            getDebugStream(state) << "Failed to read memAddr argument\n";
-            return false;
-        }
+    uint64_t dest;
+    if (!readArgument(state, 0, dest)) {
+        getDebugStream(state) << "Failed to read dest argument\n";
+        return false;
     }
 
-    uint64_t numBytes;
-    if (!readArgument(state, 2, numBytes)) {
-        getDebugStream(state) << "Failed to read numBytes argument\n";
+    uint64_t src;
+    if (!readArgument(state, 1, src)) {
+        getDebugStream(state) << "Failed to read src argument\n";
+        return false;
+    }
+
+    size_t n;
+    if (!readArgument(state, 2, n)) {
+        getDebugStream(state) << "Failed to read n argument\n";
         return false;
     }
 
     // Assemble the memory copy expression
     ref<Expr> retExpr;
-    if (memcpyHelper(state, memAddrs, numBytes, retExpr)) {
-        return true;
-    } else {
-        return false;
-    }
+    return memcpyHelper(state, dest, src, n, retExpr);
 }
 
 bool StaticFunctionModels::handleMemcmp(S2EExecutionState *state, uint64_t pc) {
     // Read function arguments
-    uint64_t memAddrs[2];
-    for (int i = 0; i < 2; i++) {
-        if (!readArgument(state, i, memAddrs[i])) {
-            getDebugStream(state) << "Failed to read memory address argument\n";
-            return false;
-        }
+    uint64_t s1;
+    if (!readArgument(state, 0, s1)) {
+        getDebugStream(state) << "Failed to read s1 argument\n";
+        return false;
     }
 
-    uint64_t memSize;
-    if (!readArgument(state, 2, memSize)) {
-        getDebugStream(state) << "Failed to read memSize argument\n";
+    uint64_t s2;
+    if (!readArgument(state, 1, s2)) {
+        getDebugStream(state) << "Failed to read s2 argument\n";
+        return false;
+    }
+
+    size_t n;
+    if (!readArgument(state, 2, n)) {
+        getDebugStream(state) << "Failed to read n argument\n";
         return false;
     }
 
     // Assemble the memory compare expression
     ref<Expr> retExpr;
-    if (memcmpHelper(state, memAddrs, memSize, retExpr)) {
+    if (memcmpHelper(state, s1, s2, n, retExpr)) {
         state->regs()->write(offsetof(CPUX86State, regs[R_EAX]), retExpr);
 
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool StaticFunctionModels::handleStrcat(S2EExecutionState *state, uint64_t pc) {
-    // Read function arguments
-    uint64_t stringAddrs[2];
-    for (int i = 0; i < 2; i++) {
-        if (!readArgument(state, i, stringAddrs[i])) {
-            getDebugStream(state) << "Failed to read stringAddr argument\n";
-            return false;
-        }
-    }
-
-    // Assemble the string concatenation expression
-    ref<Expr> retExpr;
-    if (strcatHelper(state, stringAddrs, retExpr)) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool StaticFunctionModels::handleStrncat(S2EExecutionState *state, uint64_t pc) {
-    // Read function arguments
-    uint64_t stringAddrs[2];
-    for (int i = 0; i < 2; i++) {
-        if (!readArgument(state, i, stringAddrs[i])) {
-            getDebugStream(state) << "Failed to read stringAddr argument\n";
-            return false;
-        }
-    }
-
-    uint64_t numBytes;
-    if (!readArgument(state, 2, numBytes)) {
-        getDebugStream(state) << "Failed to read numBytes argument\n";
-        return false;
-    }
-
-    // Assemble the string concatenation expression
-    ref<Expr> retExpr;
-    if (strcatHelper(state, stringAddrs, retExpr, true, numBytes)) {
         return true;
     } else {
         return false;

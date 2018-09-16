@@ -45,19 +45,21 @@ bool BaseFunctionModels::readArgument(S2EExecutionState *state, unsigned param, 
     return true;
 }
 
-bool BaseFunctionModels::findNullChar(S2EExecutionState *state, uint64_t stringAddr, size_t &len) {
-    assert(stringAddr);
-
-    getDebugStream(state) << "Searching for NULL at " << hexval(stringAddr) << "\n";
+bool BaseFunctionModels::findNullChar(S2EExecutionState *state, uint64_t str, size_t &len) {
+    assert(str);
+    getDebugStream(state) << "Searching for NULL at " << hexval(str) << "\n";
 
     Solver *solver = s2e()->getExecutor()->getSolver(*state);
     const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
 
-    for (len = 0; len < MAX_STRLEN; len++) {
-        assert(stringAddr <= UINT64_MAX - len);
-        ref<Expr> charExpr = m_memutils->read(state, stringAddr + len);
+    // The amount to increment each next character by depends on the character width, which can be either a
+    // single char (i.e., 1 byte) or a wide char (i.e., 2 bytes)
+    for (len = 0; len < MAX_STRLEN; ++len) {
+        assert(str <= UINT64_MAX - len);
+        ref<Expr> charExpr = m_memutils->read(state, str + len);
+
         if (charExpr.isNull()) {
-            getDebugStream(state) << "Failed to read char " << len << " of string " << hexval(stringAddr) << "\n";
+            getDebugStream(state) << "Failed to read char " << len << " of string " << hexval(str) << "\n";
             return false;
         }
 
@@ -81,118 +83,35 @@ bool BaseFunctionModels::findNullChar(S2EExecutionState *state, uint64_t stringA
     return true;
 }
 
-///
-/// \brief A helper function for functions that need to obtain the length of a string.
-///
-/// Obtaining the length of a string can be achieved by the following logic:
-/// \code
-/// if (str[0] == '\0')
-///     len = 0;
-/// else {
-///     if (str[1] == '\0')
-///         len = 1;
-///     else {
-///         ... {
-///                 if (str[i] == '\0')
-///                      len = i;
-///                  else {
-///                       ...
-///                 }
-///          ... }
-///      }
-/// }
-/// \endcode
-///
-bool BaseFunctionModels::strlenHelper(S2EExecutionState *state, uint64_t stringAddr, size_t &len, ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strlen(" << hexval(stringAddr) << ")\n";
-
-    if (!stringAddr) {
-        getDebugStream(state) << "Got NULL input\n";
-        return false;
-    }
-
-    // Calculate the string length
-    if (!findNullChar(state, stringAddr, len)) {
-        getDebugStream(state) << "Failed to find NULL char in string " << hexval(stringAddr) << "\n";
-        return false;
-    }
-
-    //
-    // Assemble the expression
-    //
-
+bool BaseFunctionModels::buildStrlenExpr(S2EExecutionState *state, uint64_t str, size_t len, ref<Expr> &retExpr) {
     const Expr::Width width = state->getPointerSize() * CHAR_BIT;
     const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
 
     retExpr = E_CONST(len, width);
 
-    for (int nr = len - 1; nr >= 0; nr--) {
-        ref<Expr> charExpr = m_memutils->read(state, stringAddr + nr);
+    for (int i = len - 1; i >= 0; i--) {
+        ref<Expr> charExpr = m_memutils->read(state, str + i);
         if (charExpr.isNull()) {
-            getDebugStream(state) << "Failed to read char " << nr << " of string " << hexval(stringAddr) << "\n";
+            getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(str) << "\n";
             return false;
         }
 
-        retExpr = E_ITE(E_EQ(charExpr, nullByteExpr), E_CONST(nr, width), retExpr);
+        retExpr = E_ITE(E_EQ(charExpr, nullByteExpr), E_CONST(i, width), retExpr);
     }
 
     return true;
 }
 
-bool BaseFunctionModels::strcmpHelper(S2EExecutionState *state, const uint64_t strAddrs[2], ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strcmp(" << hexval(strAddrs[0]) << ", " << hexval(strAddrs[1]) << ")\n";
+bool BaseFunctionModels::buildStrcmpExpr(S2EExecutionState *state, uint64_t str1, uint64_t str2, size_t len,
+                                         ref<Expr> &retExpr) {
+    getDebugStream(state) << "Comparing " << len << " chars\n";
 
-    // Calculate the string lengths to determine the maximum
-    size_t strLens[2];
-    for (int i = 0; i < 2; i++) {
-        if (!findNullChar(state, strAddrs[i], strLens[i])) {
-            getDebugStream(state) << "Failed to find NULL char in string " << hexval(strAddrs[i]) << "\n";
-            return false;
-        }
-    }
-    size_t memSize = std::min(strLens[0], strLens[1]) + 1;
-
-    return strcmpHelperCommon(state, strAddrs, memSize, retExpr);
-}
-
-bool BaseFunctionModels::strncmpHelper(S2EExecutionState *state, const uint64_t strAddrs[2], size_t size,
-                                       ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strncmp(" << hexval(strAddrs[0]) << ", " << hexval(strAddrs[1]) << ", " << size
-                          << ")\n";
-
-    // Calculate the string lengths to determine the maximum
-    size_t strLens[2];
-    for (unsigned i = 0; i < 2; i++) {
-        if (!findNullChar(state, strAddrs[i], strLens[i])) {
-            getDebugStream(state) << "Failed to find NULL char in string " << hexval(strAddrs[i]) << "\n";
-            return false;
-        }
-    }
-    size_t memSize = std::min(std::min(strLens[0], strLens[1]) + 1, size);
-
-    return strcmpHelperCommon(state, strAddrs, memSize, retExpr);
-}
-
-///
-/// \brief A helper function for functions that need to compare two strings str1 and str2
-///
-/// The comparison result can be calculated by examining each byte of the two strings as follows:
-/// If str1[0] is lower than str2[0], then the result is -1.
-/// If str1[0] is larger than str2[0], then the result is +1.
-/// If str1[0] equals to str2[0], then we have to check whether str1[1] is '\0'. If yes, the result will be 0,
-/// otherwise we should perform the same check on (str1[1], str2[1]), (str1[2], str2[2]), ..., (str1[memSize],
-/// str2[memSize]).
-///
-bool BaseFunctionModels::strcmpHelperCommon(S2EExecutionState *state, const uint64_t strAddrs[2], uint64_t memSize,
-                                            ref<Expr> &retExpr) {
-    getDebugStream(state) << "Comparing " << memSize << " chars\n";
-
-    if (!strAddrs[0] || !strAddrs[1]) {
+    if (!str1 || !str2) {
         getDebugStream(state) << "Got NULL input\n";
         return false;
     }
 
-    if (memSize == 0) {
+    if (len == 0) {
         retExpr = E_CONST(0, Expr::Int8);
         return true;
     }
@@ -207,29 +126,27 @@ bool BaseFunctionModels::strcmpHelperCommon(S2EExecutionState *state, const uint
     assert(width == Expr::Int32 && "-1 representation becomes wrong");
     const ref<Expr> retZeroExpr = E_CONST(0, width);
 
-    for (int nr = memSize - 1; nr >= 0; nr--) { // also compare null char
-        ref<Expr> charExpr[2];
-        charExpr[0] = m_memutils->read(state, strAddrs[0] + nr);
-        if (charExpr[0].isNull()) {
-            getDebugStream(state) << "Failed to read char " << nr << " of string " << hexval(strAddrs[0]) << "\n";
+    for (int i = len - 1; i >= 0; i--) { // also compare null char
+        ref<Expr> char1Expr = m_memutils->read(state, str1 + i);
+        if (char1Expr.isNull()) {
+            getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(str1) << "\n";
             return false;
         }
 
-        charExpr[1] = m_memutils->read(state, strAddrs[1] + nr);
-        if (charExpr[1].isNull()) {
-            getDebugStream(state) << "Failed to read char " << nr << " of string " << hexval(strAddrs[1]) << "\n";
+        ref<Expr> char2Expr = m_memutils->read(state, str2 + i);
+        if (char2Expr.isNull()) {
+            getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(str2) << "\n";
             return false;
         }
 
-        ref<Expr> subRes = E_SUB(E_ZE(charExpr[0], width), E_ZE(charExpr[1], width));
-        if ((unsigned) nr == memSize - 1) {
-            retExpr = E_ITE(E_GT(charExpr[0], charExpr[1]), subRes, retZeroExpr);
-            retExpr = E_ITE(E_LT(charExpr[0], charExpr[1]), subRes, retExpr);
+        ref<Expr> subRes = E_SUB(E_ZE(char1Expr, width), E_ZE(char2Expr, width));
+        if ((unsigned) i == len - 1) {
+            retExpr = E_ITE(E_GT(char1Expr, char2Expr), subRes, retZeroExpr);
+            retExpr = E_ITE(E_LT(char1Expr, char2Expr), subRes, retExpr);
         } else {
-            retExpr =
-                E_ITE(E_AND(E_EQ(charExpr[0], nullByteExpr), E_EQ(charExpr[1], nullByteExpr)), retZeroExpr, retExpr);
-            retExpr = E_ITE(E_GT(charExpr[0], charExpr[1]), subRes, retExpr);
-            retExpr = E_ITE(E_LT(charExpr[0], charExpr[1]), subRes, retExpr);
+            retExpr = E_ITE(E_AND(E_EQ(char1Expr, nullByteExpr), E_EQ(char2Expr, nullByteExpr)), retZeroExpr, retExpr);
+            retExpr = E_ITE(E_GT(char1Expr, char2Expr), subRes, retExpr);
+            retExpr = E_ITE(E_LT(char1Expr, char2Expr), subRes, retExpr);
         }
     }
 
@@ -237,201 +154,7 @@ bool BaseFunctionModels::strcmpHelperCommon(S2EExecutionState *state, const uint
 }
 
 ///
-/// \brief A function model for char* strcpy(char *dest, const char *src)
-///
-/// Function Model:
-///     For each memory index, i, from 0 to strlen(src) - 1, byte located at
-///     src[i] will be written to dest[i] only if there is no terminating null
-///     byte before src[i]. The address of the destination string is returned.
-///
-///     I.e.
-///     \code
-///     dest[i] = (src[0] != '\0' && src[1] != '\0' && ... && src[i-1] != '\0') ? src[i] : dest[i]
-///     \endcode
-///     For i = 0, we just perform:
-///     \code
-///     dest[0] = src[0]
-///     \endcode
-///
-bool BaseFunctionModels::strcpyHelper(S2EExecutionState *state, const uint64_t strAddrs[2], ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strcpy(" << hexval(strAddrs[0]) << ", " << hexval(strAddrs[1]) << ")\n";
-
-    // Calculate the length of the source string
-    size_t strLen;
-    if (!findNullChar(state, strAddrs[1], strLen)) {
-        getDebugStream(state) << "Failed to find NULL char in string " << hexval(strAddrs[1]) << "\n";
-        return false;
-    }
-
-    //
-    // Perform the string copy. The address of the destination string is returned
-    //
-
-    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
-    ref<Expr> accuExpr = E_CONST(1, Expr::Bool);
-
-    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
-    retExpr = E_CONST(strAddrs[0], width);
-
-    for (unsigned nr = 0; nr < strLen; nr++) {
-        ref<Expr> dstCharExpr = m_memutils->read(state, strAddrs[0] + nr);
-        ref<Expr> srcCharExpr = m_memutils->read(state, strAddrs[1] + nr);
-        if (dstCharExpr.isNull()) {
-            getDebugStream(state) << "Failed to read char " << nr << " of string " << hexval(strAddrs[0]) << "\n";
-            return false;
-        }
-        if (srcCharExpr.isNull()) {
-            getDebugStream(state) << "Failed to read char " << nr << " of string " << hexval(strAddrs[1]) << "\n";
-            return false;
-        }
-
-        ref<Expr> writeExpr = E_ITE(accuExpr, srcCharExpr, dstCharExpr);
-        if (!state->mem()->write(strAddrs[0] + nr, writeExpr)) {
-            getDebugStream(state) << "Failed to write to destination string.\n";
-            return false;
-        }
-        accuExpr = E_AND(E_NOT(E_EQ(srcCharExpr, nullByteExpr)), accuExpr);
-    }
-    if (!state->mem()->write(strAddrs[0] + strLen, nullByteExpr)) {
-        getDebugStream(state) << "Failed to write to terminate byte.\n";
-        return false;
-    }
-
-    return true;
-}
-
-///
-/// \brief A function model for char* strncpy(char *dest, const char *src, size_t n)
-///
-/// Function Model:
-///     For each memory index i, from 0 to min(n-1, strlen(src) - 1), byte
-///     located at src[i] will be written to dest[i] only if there is no
-///     terminating null byte before src[i]. If strlen(src) is less than n,
-///     then pad with null bytes. The address of the destination string is returned
-///
-///     I.e.
-///     \code
-///     dest[i] = (src[0] != '\0' && src[1] != '\0' && ... && src[i-1] != '\0') ? src[i] : '\0'
-///     \endcode
-///     For i = 0, we just perform:
-///     \code
-///     dest[0] = src[0]
-///     \endcode
-///
-bool BaseFunctionModels::strncpyHelper(S2EExecutionState *state, const uint64_t strAddrs[2], uint64_t numBytes,
-                                       ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling strncpy(" << hexval(strAddrs[0]) << ", " << hexval(strAddrs[1]) << ", "
-                          << numBytes << ")\n";
-
-    //
-    // Perform the string copy. The address of the destination string is returned
-    //
-
-    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
-    ref<Expr> AccuExpr = E_CONST(1, Expr::Bool);
-
-    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
-    retExpr = E_CONST(strAddrs[0], width);
-
-    for (unsigned nr = 0; nr < numBytes; nr++) {
-        ref<Expr> srcCharExpr = m_memutils->read(state, strAddrs[1] + nr);
-        if (srcCharExpr.isNull()) {
-            getDebugStream(state) << "Failed to read char " << nr << " of string " << hexval(strAddrs[1]) << "\n";
-            return false;
-        }
-
-        ref<Expr> writeExpr = E_ITE(AccuExpr, srcCharExpr, nullByteExpr); // null padding
-
-        if (!state->mem()->write(strAddrs[0] + nr, writeExpr)) {
-            getDebugStream(state) << "Failed to write to destination string.\n";
-            return false;
-        }
-        AccuExpr = E_AND(E_NOT(E_EQ(srcCharExpr, nullByteExpr)), AccuExpr);
-    }
-
-    return true;
-}
-
-///
-/// \brief A function model for int memcmp(const void *s1, const void *s2, size_t n);
-///
-/// Function Model:
-///     Memcmp has similar logic to strcmp except that we don't need to check the terminating null byte.
-///
-bool BaseFunctionModels::memcmpHelper(S2EExecutionState *state, const uint64_t memAddrs[2], uint64_t numBytes,
-                                      ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling memcmp(" << hexval(memAddrs[0]) << ", " << hexval(memAddrs[1]) << ", "
-                          << numBytes << ")\n";
-
-    if (!memAddrs[0] || !memAddrs[1] || !numBytes) {
-        getDebugStream(state) << "Got NULL input\n";
-        return false;
-    }
-
-    if (numBytes > MAX_STRLEN) {
-        getDebugStream(state) << "memcmp input is too large\n";
-        return false;
-    }
-
-    //
-    // Assemble the expression
-    //
-
-    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
-    retExpr = E_CONST(0, width);
-
-    for (int nr = numBytes - 1; nr >= 0; nr--) {
-        ref<Expr> charExpr[2];
-        for (unsigned i = 0; i < 2; i++) {
-            charExpr[i] = m_memutils->read(state, memAddrs[i] + nr);
-            if (charExpr[i].isNull()) {
-                getDebugStream(state) << "Failed to read byte " << nr << " of memory " << hexval(memAddrs[i]) << "\n";
-                return false;
-            }
-        }
-
-        retExpr = E_ITE(E_NEQ(charExpr[0], charExpr[1]), E_SUBZE(charExpr[0], charExpr[1], width), retExpr);
-    }
-
-    return true;
-}
-
-///
-/// \brief A function model for void* memcpy(void *dest, const void *src, size_t n);
-///
-/// Function Model:
-///     Memcpy has similar logic to strcpy except that we don't need to check the terminating null byte.
-///
-bool BaseFunctionModels::memcpyHelper(S2EExecutionState *state, const uint64_t memAddrs[2], uint64_t numBytes,
-                                      ref<Expr> &retExpr) {
-    getDebugStream(state) << "Handling memcpy(" << hexval(memAddrs[0]) << ", " << hexval(memAddrs[1]) << ", "
-                          << numBytes << ")\n";
-
-    //
-    // Perform the memory copy. The address of the destination buffer is returned
-    //
-
-    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
-    retExpr = E_CONST(memAddrs[0], width);
-
-    for (unsigned nr = 0; nr < numBytes; nr++) {
-        ref<Expr> srcCharExpr = m_memutils->read(state, memAddrs[1] + nr);
-        if (srcCharExpr.isNull()) {
-            getDebugStream(state) << "Failed to read char " << nr << " of string " << hexval(memAddrs[1]) << "\n";
-            return false;
-        }
-
-        if (!state->mem()->write(memAddrs[0] + nr, srcCharExpr)) {
-            getDebugStream(state) << "Failed to write to destination string.\n";
-            return false;
-        }
-    }
-
-    return true;
-}
-
-///
-/// \brief A helper function for functions that need to concatenate two strings
+/// \brief Helper function for functions that need to concatenate two strings
 ///
 ///      ----------------------------------------------
 /// dest | A | B | C | D | E | F | G | H | I | J |'\0'|
@@ -441,9 +164,9 @@ bool BaseFunctionModels::memcpyHelper(S2EExecutionState *state, const uint64_t m
 /// src  | a | b | c | d | e | f | g | h | i | j |'\0'|
 ///      ----------------------------------------------
 ///
-/// As the two strings could both be symbolic, the lengths of these two strings cannot be determined.
-/// Therefore the final concatenated string will could have multiple length.
-/// For example, if the length of dest and src are 3 and 4 respectively:
+/// As the two strings could both be symbolic, the lengths of these two strings cannot be determined. Therefore the
+/// final concatenated string could have multiple lengths. For example, if the length of dest and src are 3 and 4
+/// respectively:
 ///
 ///      ------------------------------------
 /// dest | A | B | C |'\0'|  |  |  |  |  |  |
@@ -459,11 +182,10 @@ bool BaseFunctionModels::memcpyHelper(S2EExecutionState *state, const uint64_t m
 /// dest | A | B | C | a | b | c | d |'\0'| I | J |
 ///      ------------------------------------------
 ///
-/// Therefore, when given a byte of dest string, for example, for dest[4],
-/// if symlen_dest can exceed 4, then we just keep dest[4] unmodified.
-/// otherwise it should be overwritten by src[position] (or '\0' when using 'strncat'),
-/// which can be illustrated as follows (note that symlen refers to the symbolic length
-/// and conlen refers to the concrete length):
+/// Therefore, when given a byte of dest string, for example, dest[4], if symlen_dest can exceed 4, then we just
+/// keep dest[4] unmodified, otherwise it will be overwritten by src[position] (or '\0' when using 'strncat'), which
+/// can be illustrated as follows (note that symlen refers to the symbolic length and conlen refers to the concrete
+/// length):
 ///
 /// \code
 ///     if (symlen_dest + 0 == 4) {
@@ -491,87 +213,388 @@ bool BaseFunctionModels::memcpyHelper(S2EExecutionState *state, const uint64_t m
 /// This can be formulated as:
 ///
 /// \code
-/// for nr in range[0, conlen_dest + conlen_src)
-///    for i in range[0, nr]
-///      if (nr - i == symlen_dest), then
-///          if   (symlen_src == i), then: dst[nr] = '\0';
-///          elif (symlen_src < i),  then: dst[nr] = dst[nr];
-///          else (symlen_src > i),  then: dst[nr] = Ncat; // Ncat = (srclen > numBytes) ? src[i] : null; or Ncat =
-///          srcCharExpr;
+/// for i in range[0, conlen_dest + conlen_src)
+///    for j in range[0, i]
+///      if (i - j == symlen_dest), then
+///          if   (symlen_src == j), then: dest[i] = '\0';
+///          elif (symlen_src < j),  then: dest[i] = dest[i];
+///          else (symlen_src > j),  then: dest[i] = ncat; // ncat = (srclen > n) ? src[j] : null; or ncat = srcExpr;
 ///          fi
 ///      fi
 ///     done
 /// done
 /// \endcode
 ///
-bool BaseFunctionModels::strcatHelper(S2EExecutionState *state, const uint64_t strAddrs[2], ref<Expr> &retExpr,
-                                      uint64_t numBytes, bool isNcat) {
-    getDebugStream(state) << "Handling str" << (isNcat ? "n" : "") << "cat(" << hexval(strAddrs[0]) << ", "
-                          << hexval(strAddrs[1]);
-    if (isNcat) {
-        getDebugStream(state) << ", " << numBytes << ")\n";
-    } else {
-        getDebugStream(state) << ")\n";
+bool BaseFunctionModels::buildStrcatExpr(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t len, bool isNcat,
+                                         ref<Expr> &retExpr) {
+    size_t destLen;
+    if (!findNullChar(state, dest, destLen)) {
+        getDebugStream(state) << "Failed to find NULL char in string " << hexval(dest) << "\n";
+        return false;
     }
 
-    size_t srcStrLen, destStrLen;
-    ref<Expr> srcExprLen, dstExprLen;
+    ref<Expr> destLenExpr;
+    if (!buildStrlenExpr(state, dest, destLen, destLenExpr)) {
+        getDebugStream(state) << "Failed to build length expression for string " << hexval(dest) << "\n";
+        return false;
+    }
 
-    if (!strlenHelper(state, strAddrs[0], destStrLen, dstExprLen) ||
-        !strlenHelper(state, strAddrs[1], srcStrLen, srcExprLen)) {
+    size_t srcLen;
+    if (!findNullChar(state, src, srcLen)) {
+        getDebugStream(state) << "Failed to find NULL char in string " << hexval(src) << "\n";
+        return false;
+    }
+
+    ref<Expr> srcLenExpr;
+    if (!buildStrlenExpr(state, src, srcLen, srcLenExpr)) {
+        getDebugStream(state) << "Failed to build length expression for string " << hexval(src) << "\n";
         return false;
     }
 
     const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
-
-    const Expr::Width width = dstExprLen.get()->getWidth();
-    retExpr = E_CONST(strAddrs[0], width);
-
-    if (isNcat) {
-        assert(numBytes && "Strncat of size 0 should be go through the original strncat in libc!");
-    }
-
-    int extra_cat = isNcat ? (int) numBytes : srcStrLen;
+    const Expr::Width width = destLenExpr.get()->getWidth();
+    retExpr = E_CONST(dest, width);
 
     // FIXME: O(n2)
-    for (int nr = destStrLen + extra_cat; nr >= 0; nr--) {
-        ref<Expr> dstCharExpr = m_memutils->read(state, strAddrs[0] + nr);
-        if (dstCharExpr.isNull()) {
-            getDebugStream(state) << "Failed to read char " << nr << " of string " << hexval(strAddrs[0]) << "\n";
+    for (int i = destLen + len; i >= 0; i--) {
+        ref<Expr> destExpr = m_memutils->read(state, dest + i);
+        if (destExpr.isNull()) {
+            getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(dest) << "\n";
             return false;
         }
 
-        ref<Expr> firstOrderCond = E_GT(dstExprLen, E_CONST(nr, width));
+        ref<Expr> firstOrderCond = E_GT(destLenExpr, E_CONST(i, width));
         ref<Expr> writeExpr, subWrite = nullByteExpr;
 
-        for (int i = 0; i <= nr; i++) { // construct subWrite expression
-            ref<Expr> dstlenConds = E_EQ(dstExprLen, E_CONST(nr - i, width));
-            ref<Expr> srclenConds_eq = E_EQ(srcExprLen, E_CONST(i, width));
-            ref<Expr> srclenConds_lower = E_LT(srcExprLen, E_CONST(i, width));
+        // construct subWrite expression
+        for (int j = 0; j <= i; j++) {
+            ref<Expr> destLenConds = E_EQ(destLenExpr, E_CONST(i - j, width));
+            ref<Expr> srcLenCondsEq = E_EQ(srcLenExpr, E_CONST(j, width));
+            ref<Expr> srcLenCondsLower = E_LT(srcLenExpr, E_CONST(j, width));
 
-            ref<Expr> srcCharExpr = m_memutils->read(state, strAddrs[1] + i);
-            if (srcCharExpr.isNull()) {
-                getDebugStream(state) << "Failed to read char " << nr << " of string " << hexval(strAddrs[1]) << "\n";
+            ref<Expr> srcExpr = m_memutils->read(state, src + j);
+            if (srcExpr.isNull()) {
+                getDebugStream(state) << "Failed to read char " << j << " of string " << hexval(src) << "\n";
                 return false;
             }
 
-            ref<Expr> NCat = isNcat ? E_ITE(E_LT(srcExprLen, E_CONST((int) numBytes, width)), nullByteExpr, srcCharExpr)
-                                    : srcCharExpr;
-            ref<Expr> SecondOrder = E_ITE(srclenConds_eq, nullByteExpr, E_ITE(srclenConds_lower, dstCharExpr, NCat));
+            ref<Expr> ncat =
+                isNcat ? E_ITE(E_LT(srcLenExpr, E_CONST((int) len, width)), nullByteExpr, srcExpr) : srcExpr;
+            ref<Expr> secondOrder = E_ITE(srcLenCondsEq, nullByteExpr, E_ITE(srcLenCondsLower, destExpr, ncat));
 
-            subWrite = E_ITE(dstlenConds, SecondOrder, subWrite);
+            subWrite = E_ITE(destLenConds, secondOrder, subWrite);
         }
-        writeExpr = E_ITE(firstOrderCond, dstCharExpr, subWrite);
 
-        if (!state->mem()->write(strAddrs[0] + nr, writeExpr)) {
-            getDebugStream(state) << "Failed to write to destination string.\n";
+        writeExpr = E_ITE(firstOrderCond, destExpr, subWrite);
+        if (!state->mem()->write(dest + i, writeExpr)) {
+            getDebugStream(state) << "Failed to write to destination string\n";
             return false;
         }
     }
 
-    if (!state->mem()->write(strAddrs[0] + destStrLen + extra_cat, nullByteExpr)) {
-        getDebugStream(state) << "Failed to write to terminate byte.\n";
+    if (!state->mem()->write(dest + destLen + len, nullByteExpr)) {
+        getDebugStream(state) << "Failed to write to NULL terminator\n";
         return false;
+    }
+
+    return true;
+}
+
+///
+/// \brief A function model for char* strcpy(char *dest, const char *src)
+///
+/// Function Model:
+///     For each memory index, i, from 0 to strlen(src) - 1, byte located at
+///     src[i] will be written to dest[i] only if there is no terminating null
+///     byte before src[i]. The address of the destination string is returned.
+///
+///     I.e.
+///     \code
+///     dest[i] = (src[0] != '\0' && src[1] != '\0' && ... && src[i-1] != '\0') ? src[i] : dest[i]
+///     \endcode
+///     For i = 0, we just perform:
+///     \code
+///     dest[0] = src[0]
+///     \endcode
+///
+bool BaseFunctionModels::strcpyHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling strcpy(" << hexval(dest) << ", " << hexval(src) << ")\n";
+
+    // Calculate the length of the source string
+    size_t len;
+    if (!findNullChar(state, src, len)) {
+        getDebugStream(state) << "Failed to find NULL char in string " << hexval(src) << "\n";
+        return false;
+    }
+
+    //
+    // Perform the string copy. The address of the destination string is returned
+    //
+
+    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
+    ref<Expr> accExpr = E_CONST(1, Expr::Bool);
+
+    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
+    retExpr = E_CONST(dest, width);
+
+    for (unsigned i = 0; i < len; i++) {
+        ref<Expr> destExpr = m_memutils->read(state, dest + i);
+        if (destExpr.isNull()) {
+            getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(dest) << "\n";
+            return false;
+        }
+
+        ref<Expr> srcExpr = m_memutils->read(state, src + i);
+        if (srcExpr.isNull()) {
+            getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(src) << "\n";
+            return false;
+        }
+
+        ref<Expr> writeExpr = E_ITE(accExpr, srcExpr, destExpr);
+        if (!state->mem()->write(dest + i, writeExpr)) {
+            getDebugStream(state) << "Failed to write to destination string\n";
+            return false;
+        }
+
+        accExpr = E_AND(E_NOT(E_EQ(srcExpr, nullByteExpr)), accExpr);
+    }
+
+    if (!state->mem()->write(dest + len, nullByteExpr)) {
+        getDebugStream(state) << "Failed to write to terminate byte\n";
+        return false;
+    }
+
+    return true;
+}
+
+///
+/// \brief A function model for char* strncpy(char *dest, const char *src, size_t n)
+///
+/// Function Model:
+///     For each memory index i, from 0 to min(n-1, strlen(src) - 1), byte
+///     located at src[i] will be written to dest[i] only if there is no
+///     terminating null byte before src[i]. If strlen(src) is less than n,
+///     then pad with null bytes. The address of the destination string is returned
+///
+///     I.e.
+///     \code
+///     dest[i] = (src[0] != '\0' && src[1] != '\0' && ... && src[i-1] != '\0') ? src[i] : '\0'
+///     \endcode
+///     For i = 0, we just perform:
+///     \code
+///     dest[0] = src[0]
+///     \endcode
+///
+bool BaseFunctionModels::strncpyHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t n,
+                                       ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling strncpy(" << hexval(dest) << ", " << hexval(src) << ", " << n << ")\n";
+
+    //
+    // Perform the string copy. The address of the destination string is returned
+    //
+
+    const ref<Expr> nullByteExpr = E_CONST('\0', Expr::Int8);
+    ref<Expr> accExpr = E_CONST(1, Expr::Bool);
+
+    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
+    retExpr = E_CONST(dest, width);
+
+    for (unsigned i = 0; i < n; i++) {
+        ref<Expr> srcExpr = m_memutils->read(state, src + i);
+        if (srcExpr.isNull()) {
+            getDebugStream(state) << "Failed to read char " << i << " of string " << hexval(src) << "\n";
+            return false;
+        }
+
+        ref<Expr> writeExpr = E_ITE(accExpr, srcExpr, nullByteExpr); // null padding
+
+        if (!state->mem()->write(dest + i, writeExpr)) {
+            getDebugStream(state) << "Failed to write to destination string\n";
+            return false;
+        }
+        accExpr = E_AND(E_NOT(E_EQ(srcExpr, nullByteExpr)), accExpr);
+    }
+
+    return true;
+}
+
+///
+/// \brief A helper function for functions that need to obtain the length of a string.
+///
+/// Obtaining the length of a string can be achieved by the following logic:
+///
+/// \code
+/// if (str[0] == '\0')
+///     len = 0;
+/// else {
+///     if (str[1] == '\0')
+///         len = 1;
+///     else {
+///         ... {
+///                 if (str[i] == '\0')
+///                      len = i;
+///                  else {
+///                       ...
+///                 }
+///          ... }
+///      }
+/// }
+/// \endcode
+///
+bool BaseFunctionModels::strlenHelper(S2EExecutionState *state, uint64_t str, ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling strlen(" << hexval(str) << ")\n";
+
+    if (!str) {
+        getDebugStream(state) << "Got NULL input\n";
+        return false;
+    }
+
+    // Calculate the string length
+    size_t len;
+    if (!findNullChar(state, str, len)) {
+        getDebugStream(state) << "Failed to find NULL char in string " << hexval(str) << "\n";
+        return false;
+    }
+
+    // Assemble the expression
+    return buildStrlenExpr(state, str, len, retExpr);
+}
+
+bool BaseFunctionModels::strcmpHelper(S2EExecutionState *state, uint64_t str1, uint64_t str2, ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling strcmp(" << hexval(str1) << ", " << hexval(str2) << ")\n";
+
+    // Calculate the maximum possible string lengths
+
+    size_t str1Len;
+    if (!findNullChar(state, str1, str1Len)) {
+        getDebugStream(state) << "Failed to find NULL char in string " << hexval(str1) << "\n";
+        return false;
+    }
+
+    size_t str2Len;
+    if (!findNullChar(state, str2, str2Len)) {
+        getDebugStream(state) << "Failed to find NULL char in string " << hexval(str2) << "\n";
+        return false;
+    }
+
+    return buildStrcmpExpr(state, str1, str2, std::min(str1Len, str2Len) + 1, retExpr);
+}
+
+bool BaseFunctionModels::strncmpHelper(S2EExecutionState *state, uint64_t str1, uint64_t str2, size_t n,
+                                       ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling strncmp(" << hexval(str1) << ", " << hexval(str2) << ", " << n << ")\n";
+
+    // Calculate the maximum possible string lengths
+
+    size_t str1Len;
+    if (!findNullChar(state, str1, str1Len)) {
+        getDebugStream(state) << "Failed to find NULL char in string " << hexval(str1) << "\n";
+        return false;
+    }
+
+    size_t str2Len;
+    if (!findNullChar(state, str2, str2Len)) {
+        getDebugStream(state) << "Failed to find NULL char in string " << hexval(str2) << "\n";
+        return false;
+    }
+
+    return buildStrcmpExpr(state, str1, str2, std::min(std::min(str1Len, str2Len) + 1, n), retExpr);
+}
+
+bool BaseFunctionModels::strcatHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling strcat(" << hexval(dest) << ", " << hexval(src) << ")\n";
+
+    size_t srcLen;
+    if (!findNullChar(state, src, srcLen)) {
+        getDebugStream(state) << "Failed to find NULL char in string " << hexval(src) << "\n";
+        return false;
+    }
+
+    return buildStrcatExpr(state, dest, src, srcLen, false, retExpr);
+}
+
+bool BaseFunctionModels::strncatHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t n,
+                                       ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling strncat(" << hexval(dest) << ", " << hexval(src) << ", " << n << ")\n";
+    assert(n && "Strncat of size 0 should be go through the original strncat in libc!");
+
+    return buildStrcatExpr(state, dest, src, n, true, retExpr);
+}
+
+///
+/// \brief A function model for int memcmp(const void *s1, const void *s2, size_t n);
+///
+/// Function Model:
+///     Memcmp has similar logic to strcmp except that we don't need to check the terminating null byte.
+///
+bool BaseFunctionModels::memcmpHelper(S2EExecutionState *state, uint64_t s1, uint64_t s2, size_t n,
+                                      ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling memcmp(" << hexval(s1) << ", " << hexval(s2) << ", " << n << ")\n";
+
+    if (!s1 || !s2 || !n) {
+        getDebugStream(state) << "Got NULL input\n";
+        return false;
+    }
+
+    if (n > MAX_STRLEN) {
+        getDebugStream(state) << "memcmp input is too large\n";
+        return false;
+    }
+
+    //
+    // Assemble the expression
+    //
+
+    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
+    retExpr = E_CONST(0, width);
+
+    for (int i = n - 1; i >= 0; i--) {
+        ref<Expr> byte1Expr = m_memutils->read(state, s1 + i);
+        if (byte1Expr.isNull()) {
+            getDebugStream(state) << "Failed to read byte " << i << " of memory " << hexval(s1) << "\n";
+            return false;
+        }
+
+        ref<Expr> byte2Expr = m_memutils->read(state, s2 + i);
+        if (byte2Expr.isNull()) {
+            getDebugStream(state) << "Failed to read byte " << i << " of memory " << hexval(s2) << "\n";
+            return false;
+        }
+
+        retExpr = E_ITE(E_NEQ(byte1Expr, byte2Expr), E_SUBZE(byte1Expr, byte2Expr, width), retExpr);
+    }
+
+    return true;
+}
+
+///
+/// \brief A function model for void* memcpy(void *dest, const void *src, size_t n);
+///
+/// Function Model:
+///     Memcpy has similar logic to strcpy except that we don't need to check the terminating null byte.
+///
+bool BaseFunctionModels::memcpyHelper(S2EExecutionState *state, uint64_t dest, uint64_t src, size_t n,
+                                      ref<Expr> &retExpr) {
+    getDebugStream(state) << "Handling memcpy(" << hexval(dest) << ", " << hexval(src) << ", " << n << ")\n";
+
+    //
+    // Perform the memory copy. The address of the destination buffer is returned
+    //
+
+    const Expr::Width width = state->getPointerSize() * CHAR_BIT;
+    retExpr = E_CONST(dest, width);
+
+    for (unsigned i = 0; i < n; i++) {
+        ref<Expr> srcExpr = m_memutils->read(state, src + i);
+        if (srcExpr.isNull()) {
+            getDebugStream(state) << "Failed to read char " << i << " of memory " << hexval(src) << "\n";
+            return false;
+        }
+
+        if (!state->mem()->write(dest + i, srcExpr)) {
+            getDebugStream(state) << "Failed to write to destination string\n";
+            return false;
+        }
     }
 
     return true;

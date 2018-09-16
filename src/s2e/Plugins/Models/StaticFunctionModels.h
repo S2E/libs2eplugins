@@ -52,15 +52,29 @@ private:
 
     bool getBool(S2EExecutionState *state, const std::string &property);
 
+    //
+    // String functions
+    //
+
+    bool handleStrcpy(S2EExecutionState *state, uint64_t pc);
+    bool handleStrncpy(S2EExecutionState *state, uint64_t pc);
     bool handleStrlen(S2EExecutionState *state, uint64_t pc);
     bool handleStrcmp(S2EExecutionState *state, uint64_t pc);
     bool handleStrncmp(S2EExecutionState *state, uint64_t pc);
-    bool handleStrcpy(S2EExecutionState *state, uint64_t pc);
-    bool handleStrncpy(S2EExecutionState *state, uint64_t pc);
-    bool handleMemcpy(S2EExecutionState *state, uint64_t pc);
-    bool handleMemcmp(S2EExecutionState *state, uint64_t pc);
     bool handleStrcat(S2EExecutionState *state, uint64_t pc);
     bool handleStrncat(S2EExecutionState *state, uint64_t pc);
+
+    //
+    // Memory functions
+    //
+
+    bool handleMemcpy(S2EExecutionState *state, uint64_t pc);
+    bool handleMemcmp(S2EExecutionState *state, uint64_t pc);
+
+    //
+    // CRC functions
+    //
+
     bool handleCrc16(S2EExecutionState *state, uint64_t pc);
     bool handleCrc32(S2EExecutionState *state, uint64_t pc);
 

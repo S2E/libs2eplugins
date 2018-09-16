@@ -32,57 +32,10 @@ void FunctionModels::initialize() {
     m_memutils = s2e()->getPlugin<MemUtils>();
 }
 
-void FunctionModels::handleStrlen(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
-    // Read function arguments
-    uint64_t stringAddr = (uint64_t) cmd.Strlen.str;
-
-    // Assemble the string length expression
-    size_t len;
-    if (strlenHelper(state, stringAddr, len, retExpr)) {
-        cmd.needOrigFunc = 0;
-    } else {
-        cmd.needOrigFunc = 1;
-    }
-}
-
-void FunctionModels::handleStrcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
-    // Read function arguments
-    uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strcmp.str1;
-    stringAddrs[1] = (uint64_t) cmd.Strcmp.str2;
-
-    // Assemble the string compare expression
-    if (strcmpHelper(state, stringAddrs, retExpr)) {
-        cmd.needOrigFunc = 0;
-    } else {
-        cmd.needOrigFunc = 1;
-    }
-}
-
-void FunctionModels::handleStrncmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
-    // Read function arguments
-    uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strncmp.str1;
-    stringAddrs[1] = (uint64_t) cmd.Strncmp.str2;
-    size_t nSize = cmd.Strncmp.n;
-
-    // Assemble the string compare expression
-    if (strncmpHelper(state, stringAddrs, nSize, retExpr)) {
-        cmd.needOrigFunc = 0;
-    } else {
-        cmd.needOrigFunc = 1;
-    }
-}
-
 void FunctionModels::handleStrcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
-    // Read function arguments
-    uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strcpy.dest;
-    stringAddrs[1] = (uint64_t) cmd.Strcpy.src;
-
     // Perform the string copy. We don't use the return expression here because it is just a concrete address
     ref<Expr> retExpr;
-    if (strcpyHelper(state, stringAddrs, retExpr)) {
+    if (strcpyHelper(state, cmd.Strcpy.dest, cmd.Strcpy.src, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -90,46 +43,36 @@ void FunctionModels::handleStrcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND 
 }
 
 void FunctionModels::handleStrncpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
-    // Read function arguments
-    uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strncpy.dest;
-    stringAddrs[1] = (uint64_t) cmd.Strncpy.src;
-    uint64_t numBytes = cmd.Strncpy.n;
-
     // Perform the string copy. We don't use the return expression here because it is just a concrete address
     ref<Expr> retExpr;
-    if (strncpyHelper(state, stringAddrs, numBytes, retExpr)) {
+    if (strncpyHelper(state, cmd.Strncpy.dest, cmd.Strncpy.src, cmd.Strncpy.n, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
     }
 }
 
-void FunctionModels::handleMemcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
-    // Read function arguments
-    uint64_t memAddrs[2];
-    memAddrs[0] = (uint64_t) cmd.Memcpy.dest;
-    memAddrs[1] = (uint64_t) cmd.Memcpy.src;
-    uint64_t numBytes = (int) cmd.Memcpy.n;
-
-    // Perform the memory copy. We don't use the return expression here because it is just a concrete address
-    ref<Expr> retExpr;
-    if (memcpyHelper(state, memAddrs, numBytes, retExpr)) {
+void FunctionModels::handleStrlen(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
+    // Assemble the string length expression
+    if (strlenHelper(state, cmd.Strlen.str, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
     }
 }
 
-void FunctionModels::handleMemcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
-    // Read function arguments
-    uint64_t memAddrs[2];
-    memAddrs[0] = (uint64_t) cmd.Memcmp.str1;
-    memAddrs[1] = (uint64_t) cmd.Memcmp.str2;
-    uint64_t numBytes = (int) cmd.Memcmp.n;
+void FunctionModels::handleStrcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
+    // Assemble the string compare expression
+    if (strcmpHelper(state, cmd.Strcmp.str1, cmd.Strcmp.str2, retExpr)) {
+        cmd.needOrigFunc = 0;
+    } else {
+        cmd.needOrigFunc = 1;
+    }
+}
 
-    // Assemble the memory compare expression
-    if (memcmpHelper(state, memAddrs, numBytes, retExpr)) {
+void FunctionModels::handleStrncmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
+    // Assemble the string compare expression
+    if (strncmpHelper(state, cmd.Strncmp.str1, cmd.Strncmp.str2, cmd.Strncmp.n, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -137,15 +80,10 @@ void FunctionModels::handleMemcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND 
 }
 
 void FunctionModels::handleStrcat(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
-    // Read function arguments
-    uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strcat.dest;
-    stringAddrs[1] = (uint64_t) cmd.Strcat.src;
-
     // Assemble the string concatenation expression. We don't use the return expression here because it is just a
     // concrete address
     ref<Expr> retExpr;
-    if (strcatHelper(state, stringAddrs, retExpr)) {
+    if (strcatHelper(state, cmd.Strcat.dest, cmd.Strcat.src, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -153,16 +91,29 @@ void FunctionModels::handleStrcat(S2EExecutionState *state, S2E_WRAPPER_COMMAND 
 }
 
 void FunctionModels::handleStrncat(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
-    // Read function arguments
-    uint64_t stringAddrs[2];
-    stringAddrs[0] = (uint64_t) cmd.Strncat.dest;
-    stringAddrs[1] = (uint64_t) cmd.Strncat.src;
-    uint64_t numBytes = (int) cmd.Strncat.n;
-
     // Assemble the string concatenation expression. We don't use the return expression here because it is just a
     // concrete address
     ref<Expr> retExpr;
-    if (strcatHelper(state, stringAddrs, retExpr, true, numBytes)) {
+    if (strncatHelper(state, cmd.Strncat.dest, cmd.Strncat.src, cmd.Strncat.n, retExpr)) {
+        cmd.needOrigFunc = 0;
+    } else {
+        cmd.needOrigFunc = 1;
+    }
+}
+
+void FunctionModels::handleMemcpy(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd) {
+    // Perform the memory copy. We don't use the return expression here because it is just a concrete address
+    ref<Expr> retExpr;
+    if (memcpyHelper(state, cmd.Memcpy.dest, cmd.Memcpy.src, cmd.Memcpy.n, retExpr)) {
+        cmd.needOrigFunc = 0;
+    } else {
+        cmd.needOrigFunc = 1;
+    }
+}
+
+void FunctionModels::handleMemcmp(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &retExpr) {
+    // Assemble the memory compare expression
+    if (memcmpHelper(state, cmd.Memcmp.str1, cmd.Memcmp.str2, cmd.Memcmp.n, retExpr)) {
         cmd.needOrigFunc = 0;
     } else {
         cmd.needOrigFunc = 1;
@@ -170,7 +121,6 @@ void FunctionModels::handleStrncat(S2EExecutionState *state, S2E_WRAPPER_COMMAND
 }
 
 void FunctionModels::handleCrc(S2EExecutionState *state, S2E_WRAPPER_COMMAND &cmd, ref<Expr> &ret) {
-
     std::vector<ref<Expr>> buffer;
     cmd.needOrigFunc = 1;
     if (!m_memutils->read(state, buffer, cmd.Crc.buffer, cmd.Crc.size)) {
@@ -271,19 +221,6 @@ void FunctionModels::handleOpcodeInvocation(S2EExecutionState *state, uint64_t g
             UPDATE_RET_VAL(Strncmp, command);
         } break;
 
-        case LIBCWRAPPER_MEMCPY: {
-            handleMemcpy(state, command);
-            if (!state->mem()->write(guestDataPtr, &command, sizeof(command))) {
-                getWarningsStream(state) << "Could not write to guest memory\n";
-            }
-        } break;
-
-        case LIBCWRAPPER_MEMCMP: {
-            ref<Expr> retExpr;
-            handleMemcmp(state, command, retExpr);
-            UPDATE_RET_VAL(Memcmp, command);
-        } break;
-
         case LIBCWRAPPER_STRCAT: {
             handleStrcat(state, command);
             if (!state->mem()->write(guestDataPtr, &command, sizeof(command))) {
@@ -296,6 +233,19 @@ void FunctionModels::handleOpcodeInvocation(S2EExecutionState *state, uint64_t g
             if (!state->mem()->write(guestDataPtr, &command, sizeof(command))) {
                 getWarningsStream(state) << "Could not write to guest memory\n";
             }
+        } break;
+
+        case LIBCWRAPPER_MEMCPY: {
+            handleMemcpy(state, command);
+            if (!state->mem()->write(guestDataPtr, &command, sizeof(command))) {
+                getWarningsStream(state) << "Could not write to guest memory\n";
+            }
+        } break;
+
+        case LIBCWRAPPER_MEMCMP: {
+            ref<Expr> retExpr;
+            handleMemcmp(state, command, retExpr);
+            UPDATE_RET_VAL(Memcmp, command);
         } break;
 
         case LIBZWRAPPER_CRC: {
