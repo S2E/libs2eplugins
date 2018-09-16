@@ -41,8 +41,8 @@ public:
     unsigned getFunctionModelCount() const;
 
 private:
-    typedef bool (StaticFunctionModels::*OpHandler)(S2EExecutionState *state, uint64_t pc);
-    typedef llvm::StringMap<OpHandler> HandlerMap;
+    using OpHandler = bool (StaticFunctionModels::*)(S2EExecutionState *);
+    using HandlerMap = llvm::StringMap<OpHandler>;
 
     ModuleExecutionDetector *m_detector;
     HandlerMap m_handlers;
@@ -56,27 +56,27 @@ private:
     // String functions
     //
 
-    bool handleStrcpy(S2EExecutionState *state, uint64_t pc);
-    bool handleStrncpy(S2EExecutionState *state, uint64_t pc);
-    bool handleStrlen(S2EExecutionState *state, uint64_t pc);
-    bool handleStrcmp(S2EExecutionState *state, uint64_t pc);
-    bool handleStrncmp(S2EExecutionState *state, uint64_t pc);
-    bool handleStrcat(S2EExecutionState *state, uint64_t pc);
-    bool handleStrncat(S2EExecutionState *state, uint64_t pc);
+    bool handleStrcpy(S2EExecutionState *state);
+    bool handleStrncpy(S2EExecutionState *state);
+    bool handleStrlen(S2EExecutionState *state);
+    bool handleStrcmp(S2EExecutionState *state);
+    bool handleStrncmp(S2EExecutionState *state);
+    bool handleStrcat(S2EExecutionState *state);
+    bool handleStrncat(S2EExecutionState *state);
 
     //
     // Memory functions
     //
 
-    bool handleMemcpy(S2EExecutionState *state, uint64_t pc);
-    bool handleMemcmp(S2EExecutionState *state, uint64_t pc);
+    bool handleMemcpy(S2EExecutionState *state);
+    bool handleMemcmp(S2EExecutionState *state);
 
     //
     // CRC functions
     //
 
-    bool handleCrc16(S2EExecutionState *state, uint64_t pc);
-    bool handleCrc32(S2EExecutionState *state, uint64_t pc);
+    bool handleCrc16(S2EExecutionState *state);
+    bool handleCrc32(S2EExecutionState *state);
 
     void onCall(S2EExecutionState *state, uint64_t pc, OpHandler handler);
 };

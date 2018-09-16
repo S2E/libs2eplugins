@@ -8,15 +8,14 @@
 
 #include <s2e/cpu.h>
 
-#include <klee/util/ExprTemplates.h>
-#include <llvm/Support/CommandLine.h>
 #include <s2e/ConfigFile.h>
 #include <s2e/S2E.h>
 #include <s2e/S2EExecutor.h>
 #include <s2e/Utils.h>
 
-#include <algorithm>
 #include <s2e/Plugins/ExecutionMonitors/FunctionMonitor.h>
+
+#include <klee/util/ExprTemplates.h>
 
 #include "StaticFunctionModels.h"
 
@@ -50,9 +49,6 @@ void StaticFunctionModels::initialize() {
     m_detector = s2e()->getPlugin<ModuleExecutionDetector>();
     m_memutils = s2e()->getPlugin<MemUtils>();
 
-    m_detector->onModuleTranslateBlockEnd.connect(
-        sigc::mem_fun(*this, &StaticFunctionModels::onModuleTranslateBlockEnd));
-
     m_handlers["strcpy"] = &StaticFunctionModels::handleStrcpy;
     m_handlers["strncpy"] = &StaticFunctionModels::handleStrncpy;
     m_handlers["strlen"] = &StaticFunctionModels::handleStrlen;
@@ -68,6 +64,9 @@ void StaticFunctionModels::initialize() {
     m_handlers["crc32"] = &StaticFunctionModels::handleCrc32;
 
     getInfoStream() << "Model count: " << getFunctionModelCount() << "\n";
+
+    m_detector->onModuleTranslateBlockEnd.connect(
+        sigc::mem_fun(*this, &StaticFunctionModels::onModuleTranslateBlockEnd));
 }
 
 unsigned StaticFunctionModels::getFunctionModelCount() const {
@@ -112,14 +111,14 @@ void StaticFunctionModels::onModuleTranslateBlockEnd(ExecutionSignal *signal, S2
         return;
     }
 
-    getDebugStream(state) << "Found function type " << type << "\n";
-    HandlerMap::const_iterator it = m_handlers.find(type);
-    if (it == m_handlers.end()) {
-        return;
-    }
+    getDebugStream(state) << "Found function " << type << "\n";
 
-    getDebugStream(state) << "Found handler for function type " << type << "\n";
-    signal->connect(sigc::bind(sigc::mem_fun(*this, &StaticFunctionModels::onCall), (*it).second));
+    // Check handlers
+    HandlerMap::const_iterator it = m_handlers.find(type);
+    if (it != m_handlers.end()) {
+        getDebugStream(state) << "Found handler for function " << type << "\n";
+        signal->connect(sigc::bind(sigc::mem_fun(*this, &StaticFunctionModels::onCall), it->second));
+    }
 
     cfg->setSilent(origSilent);
 }
@@ -127,7 +126,7 @@ void StaticFunctionModels::onModuleTranslateBlockEnd(ExecutionSignal *signal, S2
 void StaticFunctionModels::onCall(S2EExecutionState *state, uint64_t pc, StaticFunctionModels::OpHandler handler) {
     state->undoCallAndJumpToSymbolic();
 
-    bool handled = ((*this).*handler)(state, pc);
+    bool handled = ((*this).*handler)(state);
     if (handled) {
         state->bypassFunction(0);
     } else {
@@ -135,7 +134,7 @@ void StaticFunctionModels::onCall(S2EExecutionState *state, uint64_t pc, StaticF
     }
 }
 
-bool StaticFunctionModels::handleStrcpy(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleStrcpy(S2EExecutionState *state) {
     // Read function arguments
     uint64_t dest;
     if (!readArgument(state, 0, dest)) {
@@ -154,7 +153,7 @@ bool StaticFunctionModels::handleStrcpy(S2EExecutionState *state, uint64_t pc) {
     return strcpyHelper(state, dest, src, retExpr);
 }
 
-bool StaticFunctionModels::handleStrncpy(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleStrncpy(S2EExecutionState *state) {
     // Read function arguments
     uint64_t dest;
     if (!readArgument(state, 0, dest)) {
@@ -179,7 +178,7 @@ bool StaticFunctionModels::handleStrncpy(S2EExecutionState *state, uint64_t pc) 
     return strncpyHelper(state, dest, src, n, retExpr);
 }
 
-bool StaticFunctionModels::handleStrlen(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleStrlen(S2EExecutionState *state) {
     // Read function arguments
     uint64_t str;
     if (!readArgument(state, 0, str)) {
@@ -198,7 +197,7 @@ bool StaticFunctionModels::handleStrlen(S2EExecutionState *state, uint64_t pc) {
     }
 }
 
-bool StaticFunctionModels::handleStrcmp(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleStrcmp(S2EExecutionState *state) {
     // Read function arguments
     uint64_t str1;
     if (!readArgument(state, 0, str1)) {
@@ -229,7 +228,7 @@ bool StaticFunctionModels::handleStrcmp(S2EExecutionState *state, uint64_t pc) {
     }
 }
 
-bool StaticFunctionModels::handleStrncmp(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleStrncmp(S2EExecutionState *state) {
     // Read function arguments
     uint64_t str1;
     if (!readArgument(state, 0, str1)) {
@@ -266,7 +265,7 @@ bool StaticFunctionModels::handleStrncmp(S2EExecutionState *state, uint64_t pc) 
     }
 }
 
-bool StaticFunctionModels::handleStrcat(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleStrcat(S2EExecutionState *state) {
     // Read function arguments
     uint64_t dest;
     if (!readArgument(state, 0, dest)) {
@@ -285,7 +284,7 @@ bool StaticFunctionModels::handleStrcat(S2EExecutionState *state, uint64_t pc) {
     return strcatHelper(state, dest, src, retExpr);
 }
 
-bool StaticFunctionModels::handleStrncat(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleStrncat(S2EExecutionState *state) {
     // Read function arguments
     uint64_t dest;
     if (!readArgument(state, 0, dest)) {
@@ -310,7 +309,7 @@ bool StaticFunctionModels::handleStrncat(S2EExecutionState *state, uint64_t pc) 
     return strncatHelper(state, dest, src, n, retExpr);
 }
 
-bool StaticFunctionModels::handleMemcpy(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleMemcpy(S2EExecutionState *state) {
     // Read function arguments
     uint64_t dest;
     if (!readArgument(state, 0, dest)) {
@@ -335,7 +334,7 @@ bool StaticFunctionModels::handleMemcpy(S2EExecutionState *state, uint64_t pc) {
     return memcpyHelper(state, dest, src, n, retExpr);
 }
 
-bool StaticFunctionModels::handleMemcmp(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleMemcmp(S2EExecutionState *state) {
     // Read function arguments
     uint64_t s1;
     if (!readArgument(state, 0, s1)) {
@@ -366,7 +365,7 @@ bool StaticFunctionModels::handleMemcmp(S2EExecutionState *state, uint64_t pc) {
     }
 }
 
-bool StaticFunctionModels::handleCrc16(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleCrc16(S2EExecutionState *state) {
     uint64_t initialCrc;
     if (!readArgument(state, 0, initialCrc)) {
         getWarningsStream(state) << "crc16: could not read initial crc\n";
@@ -399,7 +398,7 @@ bool StaticFunctionModels::handleCrc16(S2EExecutionState *state, uint64_t pc) {
     return true;
 }
 
-bool StaticFunctionModels::handleCrc32(S2EExecutionState *state, uint64_t pc) {
+bool StaticFunctionModels::handleCrc32(S2EExecutionState *state) {
     uint64_t initialCrc;
     if (!readArgument(state, 0, initialCrc)) {
         getWarningsStream(state) << "crc32: could not read initial crc\n";
