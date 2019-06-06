@@ -202,7 +202,9 @@ void SeedSearcher::update(klee::ExecutionState *current, const klee::StateSet &a
 
         // This can only happen if state 0 dies for some reason
         if (es == m_initialState) {
+#if defined(CONFIG_SYMBEX) && defined(CONFIG_SYMBEX_MP)
             s2e_warn_assert(cs, false, "Initial state no longer exists, seed look up is not possible");
+#endif
             m_initialState = NULL;
             m_selectSeedState = false;
         }
@@ -446,10 +448,10 @@ void SeedSearcher::handleGetSeedFile(S2EExecutionState *state, S2E_SEEDSEARCHER_
 
     if (!m_selectSeedState) {
         if (m_states.size() > 1 || alreadyExplored) {
-            cmd.GetFile.Result = 0;
+            cmd.GetFile.Result = SEED_GETFILE_FAIL_NO_FORK;
         } else {
             alreadyExplored = true;
-            cmd.GetFile.Result = 1;
+            cmd.GetFile.Result = SEED_GETFILE_FAIL_DO_FORK;
         }
 
         getDebugStream(state) << "no seeds available\n";
@@ -469,7 +471,11 @@ void SeedSearcher::handleGetSeedFile(S2EExecutionState *state, S2E_SEEDSEARCHER_
 
     m_selectSeedState = false;
 
-    cmd.GetFile.Result = 2;
+#if defined(CONFIG_SYMBEX) && defined(CONFIG_SYMBEX_MP)
+    cmd.GetFile.Result = SEED_GETFILE_SUCC_DO_FORK;
+#else
+    cmd.GetFile.Result = SEED_GETFILE_SUCC_NO_FORK;
+#endif
 
     if (state == m_initialState) {
         plgState->seedIndex = m_currentSeed.index;
